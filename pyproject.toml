@@ -82,3 +82,7 @@ asyncio_default_fixture_loop_scope = "function"
 [[tool.uv.index]]
 name = "blender"
 url = "https://download.blender.org/pypi/"
+explicit = true 
+
+[tool.uv.sources]
+bpy = { index = "blender" }                                                                                                                                                                                               
