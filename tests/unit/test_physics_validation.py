@@ -2,6 +2,7 @@ import math
 import unittest
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import lxml.etree as ET
 import numpy as np
@@ -14,6 +15,7 @@ from scenesmith.agent_utils.clearance_zones import (
     OpenConnectionBlockedViolation,
     WallHeightExceededViolation,
     WindowClearanceViolation,
+    compute_wall_height_violations,
 )
 from scenesmith.agent_utils.house import RoomGeometry
 from scenesmith.agent_utils.physics_validation import (
@@ -919,6 +921,68 @@ class TestComputeThinCoveringBoundaryViolations(unittest.TestCase):
         )
         # Furniture without thin_covering metadata should be ignored.
         self.assertEqual(len(violations), 0)
+
+
+class _ObjectWithBounds:
+    def __init__(self, object_id: str, object_type: ObjectType, top_height: float):
+        self.object_id = UniqueID(object_id)
+        self.object_type = object_type
+        self._top_height = top_height
+
+    def compute_world_bounds(self):
+        return np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [1.0, 1.0, self._top_height],
+            ]
+        )
+
+
+class TestWallHeightViolations(unittest.TestCase):
+    """Test wall-height checks used by physics feedback."""
+
+    def test_allows_small_numeric_tolerance_at_wall_height(self):
+        scene = RoomScene(
+            room_geometry=SimpleNamespace(wall_height=2.5),
+            scene_dir=Path(__file__).parent.parent / "test_data",
+        )
+        furniture = _ObjectWithBounds(
+            "bookcase_001", ObjectType.FURNITURE, top_height=2.505
+        )
+        scene.objects[furniture.object_id] = furniture
+
+        violations = compute_wall_height_violations(scene)
+
+        self.assertEqual(violations, [])
+
+    def test_reports_non_ceiling_object_above_tolerance(self):
+        scene = RoomScene(
+            room_geometry=SimpleNamespace(wall_height=2.5),
+            scene_dir=Path(__file__).parent.parent / "test_data",
+        )
+        furniture = _ObjectWithBounds(
+            "bookcase_001", ObjectType.FURNITURE, top_height=2.52
+        )
+        scene.objects[furniture.object_id] = furniture
+
+        violations = compute_wall_height_violations(scene)
+
+        self.assertEqual(len(violations), 1)
+        self.assertEqual(violations[0].object_id, "bookcase_001")
+
+    def test_ignores_ceiling_mounted_objects_at_ceiling_plane(self):
+        scene = RoomScene(
+            room_geometry=SimpleNamespace(wall_height=2.5),
+            scene_dir=Path(__file__).parent.parent / "test_data",
+        )
+        light = _ObjectWithBounds(
+            "ceiling_light_001", ObjectType.CEILING_MOUNTED, top_height=2.52
+        )
+        scene.objects[light.object_id] = light
+
+        violations = compute_wall_height_violations(scene)
+
+        self.assertEqual(violations, [])
 
 
 class TestClearanceViolationFiltering(unittest.TestCase):

@@ -14,12 +14,6 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 from omegaconf.omegaconf import open_dict
 
-# isort: off
-# Need to import bpy first to avoid potential symbol loading issues.
-import bpy  # noqa: F401
-
-# isort: on
-
 from scenesmith.utils.logging import FileLoggingContext
 from scenesmith.utils.omegaconf import register_resolvers
 from scenesmith.utils.print_utils import cyan

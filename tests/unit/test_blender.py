@@ -472,10 +472,19 @@ class TestBlenderServer(unittest.TestCase):
         return_value=True,
     )
     @patch("tempfile.TemporaryDirectory")
+    @patch(
+        "scenesmith.agent_utils.blender.server_manager.BlenderServer._python_can_import_bpy",
+        return_value=True,
+    )
     @patch("subprocess.Popen")
     @patch.object(Path, "exists", return_value=True)  # Mock standalone script exists
     def test_start_creates_process(
-        self, mock_exists, mock_popen, mock_temp_dir, mock_port_available
+        self,
+        mock_exists,
+        mock_popen,
+        mock_can_import_bpy,
+        mock_temp_dir,
+        mock_port_available,
     ):
         """Test that start creates temporary directory and process."""
         mock_temp_dir_instance = Mock()

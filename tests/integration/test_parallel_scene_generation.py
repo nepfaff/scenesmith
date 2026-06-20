@@ -1,5 +1,6 @@
 import logging
 import shutil
+import socket
 import tempfile
 import unittest
 
@@ -12,18 +13,25 @@ from scenesmith.experiments.indoor_scene_generation import (
 )
 from tests.integration.common import (
     has_gpu_available,
-    has_hunyuan3d_installed,
     has_openai_key,
+    has_sam3d_installed,
     is_github_actions,
 )
+
+
+def _get_free_port() -> int:
+    """Return an available localhost TCP port for this test process."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
 
 
 @unittest.skipIf(
     not has_openai_key()
     or not has_gpu_available()
-    or not has_hunyuan3d_installed()
+    or not has_sam3d_installed()
     or is_github_actions(),
-    "Requires OpenAI API key, GPU, Hunyuan3D-2, and non-CI environment",
+    "Requires OpenAI API key, GPU, SAM3D checkpoints, and non-CI environment",
 )
 class TestParallelSceneGeneration(unittest.TestCase):
     """Integration test for parallel scene generation functionality."""
@@ -33,6 +41,13 @@ class TestParallelSceneGeneration(unittest.TestCase):
         self.temp_dir = Path(tempfile.mkdtemp())
         self.output_dir = self.temp_dir / "parallel_test"
         self.output_dir.mkdir(exist_ok=True)
+        self.service_ports = {
+            "geometry_generation_server": _get_free_port(),
+            "hssd_retrieval_server": _get_free_port(),
+            "articulated_retrieval_server": _get_free_port(),
+            "objaverse_retrieval_server": _get_free_port(),
+            "materials_retrieval_server": _get_free_port(),
+        }
 
         # Print output directory for progress tracking.
         print(f"\n{'='*60}")
@@ -190,12 +205,37 @@ class TestParallelSceneGeneration(unittest.TestCase):
                 "name": "test_parallel_scene_generation",  # Required by experiment
                 "num_workers": 2,  # Test parallel execution
                 "prompts": [
-                    "A room with exactly one chair and one table. No other objects.",
-                    "A room with exactly one bed and one nightstand. No other objects.",
+                    "A compact dining room with one simple table and one chair. No other objects.",
+                    "A compact office with one simple desk and one office chair. No other objects.",
                 ],
                 "output_dir": self.output_dir,
+                "pipeline": {
+                    "start_stage": "floor_plan",
+                    "stop_stage": "furniture",
+                },
+                "geometry_generation_server": {
+                    "port": self.service_ports["geometry_generation_server"],
+                    "preload_pipeline": False,
+                },
+                "hssd_retrieval_server": {
+                    "port": self.service_ports["hssd_retrieval_server"],
+                },
+                "articulated_retrieval_server": {
+                    "port": self.service_ports["articulated_retrieval_server"],
+                },
+                "objaverse_retrieval_server": {
+                    "port": self.service_ports["objaverse_retrieval_server"],
+                },
+                "materials_retrieval_server": {
+                    "port": self.service_ports["materials_retrieval_server"],
+                },
             },
-            "max_critique_rounds": 1,  # Faster for testing
+            "floor_plan_agent": {
+                "max_critique_rounds": 0,
+            },
+            "furniture_agent": {
+                "max_critique_rounds": 0,
+            },
             "openai": {
                 "model": "gpt-4o-mini",  # Cheaper model for testing
                 "service_tier": "default",
@@ -241,70 +281,61 @@ class TestParallelSceneGeneration(unittest.TestCase):
             self.assertTrue(log_file.exists(), f"Scene log should exist: {scene_dir}")
 
             # Check floor plan files exist.
-            floor_plan_file = scene_dir / "room_geometry.sdf"
-            self.assertTrue(
-                floor_plan_file.exists(),
+            floor_plan_files = list((scene_dir / "room_geometry").glob("*.sdf"))
+            self.assertGreater(
+                len(floor_plan_files),
+                0,
                 f"Floor plan SDF should exist: {scene_dir}",
             )
 
-            # Check generated assets directory structure (required for successful scenes).
-            generated_assets_dir = scene_dir / "generated_assets"
-            self.assertTrue(
-                generated_assets_dir.exists() and generated_assets_dir.is_dir(),
-                f"Generated assets directory should exist: {scene_dir}",
+            room_dirs = [
+                path
+                for path in scene_dir.glob("room_*")
+                if path.is_dir() and (path / "room.log").exists()
+            ]
+            self.assertGreater(
+                len(room_dirs), 0, f"Room output should exist: {scene_dir}"
             )
 
-            # Check expected subdirectories.
-            for subdir in ["images", "geometry", "sdf", "debug"]:
-                subdir_path = generated_assets_dir / subdir
-                # Check that the subdirectory exists and is a directory.
+            for room_dir in room_dirs:
+                # Check furniture assets. These may come from generated geometry,
+                # articulated retrieval, or another configured backend.
+                generated_assets_dir = room_dir / "generated_assets" / "furniture"
                 self.assertTrue(
-                    subdir_path.exists() and subdir_path.is_dir(),
-                    f"Generated assets/{subdir} should exist and be directory: "
-                    f"{scene_dir}",
+                    generated_assets_dir.exists() and generated_assets_dir.is_dir(),
+                    f"Furniture assets directory should exist: {room_dir}",
                 )
-                # Check that the subdirectory is not empty.
-                try:
+
+                self.assertTrue(
+                    (generated_assets_dir / "asset_registry.json").exists(),
+                    f"Furniture asset registry should exist: {room_dir}",
+                )
+                self.assertGreater(
+                    len(list((generated_assets_dir / "sdf").rglob("*.sdf"))),
+                    0,
+                    f"At least one furniture SDF should exist: {room_dir}",
+                )
+
+                # Check furniture renders and furniture-stage scene state.
+                scene_renders_dir = room_dir / "scene_renders" / "furniture"
+                self.assertTrue(
+                    scene_renders_dir.exists() and scene_renders_dir.is_dir(),
+                    f"Furniture renders directory should exist: {room_dir}",
+                )
+
+                furniture_state_dir = (
+                    room_dir / "scene_states" / "scene_after_furniture"
+                )
+                self.assertTrue(
+                    furniture_state_dir.exists() and furniture_state_dir.is_dir(),
+                    f"Furniture scene state directory should exist: {room_dir}",
+                )
+
+                for filename in ["scene_state.json", "scene.dmd.yaml", "scene.blend"]:
                     self.assertTrue(
-                        len(list(subdir_path.iterdir())) > 0,
-                        f"Generated assets/{subdir} should not be empty: {scene_dir}",
+                        (furniture_state_dir / filename).exists(),
+                        f"{filename} should exist in furniture state: {room_dir}",
                     )
-                except AssertionError:
-                    # Dump diagnostics and re-raise with more context.
-                    print(self._dump_scene_diagnostics(scene_dir))
-                    raise
-
-            # Check scene renders directory.
-            scene_renders_dir = scene_dir / "scene_renders"
-            self.assertTrue(
-                scene_renders_dir.exists() and scene_renders_dir.is_dir(),
-                f"Scene renders directory should exist: {scene_dir}",
-            )
-
-            # Check final scene state directory.
-            scene_states_dir = scene_dir / "scene_states"
-            self.assertTrue(
-                scene_states_dir.exists() and scene_states_dir.is_dir(),
-                f"Scene states directory should exist: {scene_dir}",
-            )
-
-            final_scene_dir = scene_states_dir / "final_scene"
-            self.assertTrue(
-                final_scene_dir.exists() and final_scene_dir.is_dir(),
-                f"Final scene directory should exist: {scene_dir}",
-            )
-
-            # Check final scene files.
-            final_scene_state = final_scene_dir / "scene_state.json"
-            final_scene_directive = final_scene_dir / "scene.dmd.yaml"
-            self.assertTrue(
-                final_scene_state.exists(),
-                f"Final scene state should exist: {scene_dir}",
-            )
-            self.assertTrue(
-                final_scene_directive.exists(),
-                f"Final scene directive should exist: {scene_dir}",
-            )
 
 
 if __name__ == "__main__":

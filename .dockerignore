@@ -5,9 +5,13 @@ export_logs/
 # Data directories (mounted at runtime).
 data/
 external/checkpoints/
+external/Hunyuan3D-2/
+external/SAM3/
+external/sam-3d-objects/
 
 # Virtual environments.
 .venv/
+.venv-blender/
 .mujoco_venv/
 
 # Python caches.

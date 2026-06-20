@@ -8,11 +8,15 @@ import math
 import unittest
 
 from pathlib import Path
+from unittest.mock import Mock
 
 import bpy
 import numpy as np
 
-from mathutils import Vector
+try:
+    from mathutils import Vector
+except ImportError:
+    Vector = None
 
 from scenesmith.agent_utils.blender.surface_utils import (
     find_best_label_position,
@@ -20,6 +24,10 @@ from scenesmith.agent_utils.blender.surface_utils import (
 )
 
 
+@unittest.skipIf(
+    isinstance(bpy, Mock) or Vector is None,
+    "Requires Blender's bpy and mathutils Python modules",
+)
 class TestSurfaceOcclusion(unittest.TestCase):
     """Tests for surface occlusion detection contracts."""
 

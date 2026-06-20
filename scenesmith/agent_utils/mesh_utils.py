@@ -371,16 +371,23 @@ def scale_mesh_uniformly_to_dimensions(
     output_path: Path | None = None,
     min_dimension_meters: float = 0.001,
     relative_threshold: float = 0.01,
+    preserve_aspect_ratio: bool = True,
+    desired_dimensions_frame: str = "mesh",
 ) -> tuple[Path, float]:
-    """Scale a 3D mesh uniformly to match desired dimensions.
+    """Scale a 3D mesh to match desired dimensions.
 
-    Uses the median scale factor across all axes to preserve the mesh's
+    By default, uses the median scale factor across all axes to preserve the mesh's
     original proportions while scaling to match the target dimensions. This
     is appropriate for image-to-3D generated meshes where the relative
     proportions are likely correct but the absolute scale is unknown.
 
+    When preserve_aspect_ratio is False, applies per-axis scaling to match the
+    target dimensions exactly. This is useful after canonicalizing generated
+    GLTFs that will be loaded by Drake, where the requested dimensions are part
+    of the scene contract and downstream critics/planners compare against them.
+
     Validates mesh dimensions to reject degenerate geometries that would
-    produce incorrect results when uniformly scaled.
+    produce incorrect results when scaled.
 
     Args:
         mesh_path: Path to input mesh file (GLB, OBJ, STL, etc.). Must exist.
@@ -396,11 +403,19 @@ def scale_mesh_uniformly_to_dimensions(
         relative_threshold: Minimum ratio between smallest and largest dimension.
             Meshes where min_dim/max_dim < this threshold are rejected. Default:
             0.01 (1%, meaning aspect ratios worse than 100:1 are rejected).
+        preserve_aspect_ratio: If True, apply one uniform scale factor. If False,
+            apply per-axis scaling to exactly match target dimensions.
+        desired_dimensions_frame: Coordinate frame for desired_dimensions. "mesh"
+            means dimensions map directly to mesh X/Y/Z. "drake_yup_to_zup" means
+            desired_dimensions are Drake Z-up dimensions [width, depth, height]
+            for a Y-up GLTF mesh that Drake loads with (x, y, z) -> (x, -z, y),
+            so mesh target dimensions are [width, height, depth].
 
     Returns:
-        Tuple of (path to scaled mesh file, uniform scale factor applied).
-        The scale factor is needed to correctly scale HSSD pre-computed support
-        surfaces which are stored at original mesh dimensions.
+        Tuple of (path to scaled mesh file, representative scale factor applied).
+        For uniform scaling this is the actual scalar factor. For per-axis scaling
+        this is the median axis factor and should not be used for support surface
+        scaling.
 
     Raises:
         FileNotFoundError: If the input mesh file does not exist.
@@ -418,6 +433,11 @@ def scale_mesh_uniformly_to_dimensions(
         )
     if any(dim <= 0 for dim in desired_dimensions):
         raise ValueError(f"All dimensions must be positive, got: {desired_dimensions}")
+    if desired_dimensions_frame not in {"mesh", "drake_yup_to_zup"}:
+        raise ValueError(
+            "desired_dimensions_frame must be 'mesh' or 'drake_yup_to_zup', "
+            f"got: {desired_dimensions_frame}"
+        )
 
     # Load mesh and ensure it's a single Trimesh object.
     mesh = load_mesh_as_trimesh(mesh_path, force_merge=True)
@@ -460,23 +480,42 @@ def scale_mesh_uniformly_to_dimensions(
             f"where the model produced near-2D geometry. Please regenerate the asset."
         )
 
-    # Calculate uniform scale factor (median to match target dimensions).
-    # Use median instead of mean for robustness to near-degenerate dimensions.
-    desired_array = np.array(desired_dimensions)
-    scale_factors = desired_array / current_dimensions
-    uniform_scale = np.median(scale_factors)
+    desired_array = np.array(desired_dimensions, dtype=float)
+    if desired_dimensions_frame == "drake_yup_to_zup":
+        target_dimensions = desired_array[[0, 2, 1]]
+    else:
+        target_dimensions = desired_array
 
-    # Calculate actual resulting dimensions.
-    actual_dimensions = current_dimensions * uniform_scale
+    scale_factors = target_dimensions / current_dimensions
 
-    console_logger.info(
-        f"Uniformly scaling mesh from {current_dimensions} to "
-        f"{actual_dimensions} (requested: {desired_dimensions}, "
-        f"scale factor: {uniform_scale:.3f})"
-    )
+    if preserve_aspect_ratio:
+        # Calculate uniform scale factor (median to match target dimensions).
+        # Use median instead of mean for robustness to near-degenerate dimensions.
+        applied_scale = float(np.median(scale_factors))
+        actual_dimensions = current_dimensions * applied_scale
 
-    # Apply uniform scaling.
-    mesh.apply_scale(uniform_scale)
+        console_logger.info(
+            f"Uniformly scaling mesh from {current_dimensions} to "
+            f"{actual_dimensions} (requested: {desired_dimensions}, "
+            f"target frame: {desired_dimensions_frame}, "
+            f"scale factor: {applied_scale:.3f})"
+        )
+
+        mesh.apply_scale(applied_scale)
+    else:
+        applied_scale = float(np.median(scale_factors))
+        actual_dimensions = current_dimensions * scale_factors
+
+        console_logger.info(
+            f"Per-axis scaling mesh from {current_dimensions} to "
+            f"{actual_dimensions} (requested: {desired_dimensions}, "
+            f"target frame: {desired_dimensions_frame}, "
+            f"axis scale factors: {scale_factors})"
+        )
+
+        transform = np.eye(4)
+        transform[:3, :3] = np.diag(scale_factors)
+        mesh.apply_transform(transform)
 
     # Determine output path.
     final_output_path = output_path if output_path is not None else mesh_path
@@ -487,9 +526,9 @@ def scale_mesh_uniformly_to_dimensions(
     # Export scaled mesh.
     mesh.export(final_output_path)
 
-    console_logger.info(f"Uniformly scaled mesh saved to {final_output_path}")
+    console_logger.info(f"Scaled mesh saved to {final_output_path}")
 
-    return final_output_path, uniform_scale
+    return final_output_path, applied_scale
 
 
 def _compute_bbox_min_distance(bounds1: np.ndarray, bounds2: np.ndarray) -> float:

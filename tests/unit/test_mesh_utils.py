@@ -12,6 +12,7 @@ from scenesmith.agent_utils.mesh_utils import (
     remove_mesh_floaters,
     scale_mesh_uniformly_to_dimensions,
 )
+from scenesmith.agent_utils.sdf_generator import YUP_TO_ZUP_TRANSFORM
 
 
 class TestScaleMeshToDimensions(unittest.TestCase):
@@ -160,6 +161,35 @@ class TestScaleMeshToDimensions(unittest.TestCase):
             expected_dims,
             rtol=1e-5,
             err_msg="Did not scale by average factor",
+        )
+
+    def test_exact_drake_frame_scaling_for_yup_gltf(self):
+        """Test per-axis scaling for GLTFs that Drake converts from Y-up to Z-up."""
+        # In a Y-up GLTF, mesh Y becomes Drake Z and mesh Z becomes Drake Y.
+        mesh = trimesh.creation.box(extents=[1.0, 0.25, 0.8])
+        input_path = self.temp_path / "yup_box.glb"
+        mesh.export(input_path)
+
+        desired_drake_dims = [0.85, 0.85, 0.42]
+        output_path = self.temp_path / "scaled_yup_box.glb"
+
+        scale_mesh_uniformly_to_dimensions(
+            mesh_path=input_path,
+            desired_dimensions=desired_drake_dims,
+            output_path=output_path,
+            preserve_aspect_ratio=False,
+            desired_dimensions_frame="drake_yup_to_zup",
+        )
+
+        scaled_mesh = trimesh.load(output_path, force="mesh")
+        scaled_mesh.apply_transform(YUP_TO_ZUP_TRANSFORM)
+        scaled_drake_dims = scaled_mesh.bounds[1] - scaled_mesh.bounds[0]
+
+        np.testing.assert_allclose(
+            scaled_drake_dims,
+            np.array(desired_drake_dims),
+            rtol=1e-5,
+            err_msg="Y-up GLTF scaling did not match Drake-frame dimensions",
         )
 
 

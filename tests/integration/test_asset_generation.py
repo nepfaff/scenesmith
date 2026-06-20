@@ -4,6 +4,7 @@ import tempfile
 import unittest
 
 from pathlib import Path
+from unittest.mock import Mock
 
 import numpy as np
 import trimesh
@@ -12,7 +13,10 @@ from omegaconf import OmegaConf
 
 # isort: off
 # Need to import bpy first to avoid potential symbol loading issues.
-import bpy  # noqa: F401
+try:
+    import bpy  # noqa: F401
+except ImportError:
+    bpy = None
 
 # isort: on
 
@@ -44,7 +48,9 @@ from tests.integration.common import (
     not has_openai_key()
     or not has_gpu_available()
     or not has_hunyuan3d_installed()
-    or is_github_actions(),
+    or is_github_actions()
+    or bpy is None
+    or isinstance(bpy, Mock),
     "Requires OpenAI API key, GPU, Hunyuan3D-2, and non-CI environment",
 )
 class TestAssetGenerationIntegration(unittest.TestCase):

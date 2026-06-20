@@ -60,6 +60,13 @@ from scenesmith.utils.geometry_utils import safe_convex_hull_2d
 console_logger = logging.getLogger(__name__)
 
 
+def _is_floating_body(body) -> bool:
+    """Return whether a Drake body has a floating base across Drake versions."""
+    if hasattr(body, "is_floating_base_body"):
+        return body.is_floating_base_body()
+    return body.is_floating()
+
+
 def _find_surface_owner(
     scene: RoomScene, surface_id: UniqueID
 ) -> tuple[UniqueID | None, bool]:
@@ -319,7 +326,7 @@ def _update_scene_from_plant(
             continue
 
         body = plant.get_body(body_idx)
-        if not body.is_floating():
+        if not _is_floating_body(body):
             # Welded body - pose is fixed.
             continue
 
@@ -371,7 +378,7 @@ def _update_scene_from_plant(
             model_idx, body_idx = object_indices[composite_id]
             body = plant.get_body(body_idx)
 
-            if not body.is_floating():
+            if not _is_floating_body(body):
                 continue
 
             # Get new bottom pose from plant.
@@ -775,8 +782,9 @@ def apply_non_penetration_projection(
     This is Stage 1 of physical feasibility post-processing. Uses Drake's
     InverseKinematics with minimum distance constraints to resolve penetrations.
 
-    For large scenes (above threshold), uses collision pre-check optimization
-    to reduce DOFs by only making colliding objects free bodies.
+    Uses a collision pre-check to skip the IK solve when no objects are
+    penetrating. For large scenes (above threshold), the same pre-check also
+    reduces DOFs by only making colliding objects free bodies.
 
     Args:
         scene: RoomScene to project.
@@ -792,7 +800,8 @@ def apply_non_penetration_projection(
                       If False, allow rotation optimization.
         large_scene_optimization_threshold: When scene has more objects than
             this threshold, only colliding objects are made free in IK.
-            Set to 0 to always use optimization, very high to disable.
+            The no-collision skip is always applied regardless of this value.
+            Set to 0 to always reduce DOFs, very high to disable DOF reduction.
         collision_penetration_threshold_m: Minimum penetration depth (meters)
             to consider an object as colliding. Objects with penetration below
             this are treated as surface contacts and excluded from optimization.
@@ -808,21 +817,21 @@ def apply_non_penetration_projection(
         f"xy_only={xy_only}, fix_rotation={fix_rotation}, objects={total_objects})"
     )
 
-    # For large scenes, use collision pre-check to reduce DOFs.
-    # Small scenes (per-furniture projection) use existing fast path.
+    colliding_ids = _get_colliding_object_ids(
+        scene, penetration_threshold=collision_penetration_threshold_m
+    )
+
+    if not colliding_ids:
+        elapsed = time.time() - start_time
+        console_logger.info(
+            f"No collisions detected, skipping projection ({elapsed:.2f}s)"
+        )
+        return scene, True
+
+    # For large scenes, use the collision pre-check to reduce DOFs.
+    # Smaller scenes still project all objects to preserve existing behavior.
     free_object_ids: list[UniqueID] | None = None
     if total_objects > large_scene_optimization_threshold:
-        colliding_ids = _get_colliding_object_ids(
-            scene, penetration_threshold=collision_penetration_threshold_m
-        )
-
-        if not colliding_ids:
-            elapsed = time.time() - start_time
-            console_logger.info(
-                f"No collisions detected, skipping projection ({elapsed:.2f}s)"
-            )
-            return scene, True
-
         console_logger.info(
             f"Large scene optimization: {len(colliding_ids)}/{total_objects} "
             f"objects colliding (DOF: {total_objects * 7} -> {len(colliding_ids) * 7})"

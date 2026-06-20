@@ -90,9 +90,10 @@ class SceneSetupMixin:
         new_count = len(bpy.data.objects)
         assert new_count - old_count == len(bpy.context.selected_objects)
 
-        # Apply rotation to counteract glTF import rotation.
+        # Blender 5 imports Drake's glTF output with the opposite X-axis
+        # correction needed by Blender 4.
         bpy.ops.transform.rotate(
-            value=math.pi / 2,
+            value=-math.pi / 2,
             orient_axis="X",
             orient_type="GLOBAL",
             center_override=(0, 0, 0),

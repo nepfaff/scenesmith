@@ -4,6 +4,7 @@ import json
 import logging
 import tempfile
 import time
+import uuid
 
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -24,7 +25,7 @@ from scenesmith.agent_utils.asset_router.dataclasses import (
     GeneratedGeometry,
     ValidationResult,
 )
-from scenesmith.agent_utils.blender.renderer import MATERIAL_VALIDATION_LIGHT_ENERGY
+from scenesmith.agent_utils.blender.constants import MATERIAL_VALIDATION_LIGHT_ENERGY
 from scenesmith.agent_utils.geometry_generation_server.dataclasses import (
     GeometryGenerationError,
 )
@@ -72,6 +73,11 @@ if TYPE_CHECKING:
     )
 
 console_logger = logging.getLogger(__name__)
+
+
+def _unique_asset_basename(short_name: str) -> str:
+    """Return a filesystem basename that remains unique under parallel generation."""
+    return f"{short_name}_{time.time_ns()}_{uuid.uuid4().hex[:8]}"
 
 
 class AssetRouter:
@@ -229,13 +235,26 @@ class AssetRouter:
         for item_data in response.get("items", []):
             try:
                 object_type = ObjectType(item_data["object_type"].lower())
+                strategies = list(item_data["strategies"])
+                if (
+                    self.agent_type == AgentType.CEILING_MOUNTED
+                    and "articulated" in strategies
+                ):
+                    strategies = [s for s in strategies if s != "articulated"]
+                    if not strategies:
+                        strategies = ["generated"]
+                    console_logger.info(
+                        "Removed unsupported articulated strategy from ceiling "
+                        f"asset '{item_data.get('description', '<unknown>')}'"
+                    )
+
                 items.append(
                     AssetItem(
                         description=item_data["description"],
                         short_name=item_data["short_name"],
                         dimensions=item_data["dimensions"],
                         object_type=object_type,
-                        strategies=item_data["strategies"],
+                        strategies=strategies,
                         thin_covering_type=item_data.get("thin_covering_type"),
                     )
                 )
@@ -792,7 +811,7 @@ class AssetRouter:
             List of paths to rendered images.
         """
         # Use lower light energy for articulated objects (more reflective materials).
-        from scenesmith.agent_utils.blender.renderer import ARTICULATED_LIGHT_ENERGY
+        from scenesmith.agent_utils.blender.constants import ARTICULATED_LIGHT_ENERGY
 
         # BlenderServer is REQUIRED - forked workers cannot safely use embedded bpy
         # due to GPU/OpenGL state corruption from fork.
@@ -1163,8 +1182,7 @@ class AssetRouter:
         Returns:
             GeneratedGeometry if successful, None on error.
         """
-        timestamp = int(time.time())
-        base_name = f"{item.short_name}_{timestamp}"
+        base_name = _unique_asset_basename(item.short_name)
         glb_path = geometry_dir / f"{base_name}.glb"
 
         try:
@@ -1760,9 +1778,7 @@ class AssetRouter:
             GeometryGenerationServerRequest,
         )
 
-        # Generate unique filename with timestamp.
-        timestamp = int(time.time())
-        base_name = f"{item.short_name}_{timestamp}"
+        base_name = _unique_asset_basename(item.short_name)
         image_path = images_dir / f"{base_name}.png"
         geometry_path = geometry_dir / f"{base_name}.glb"
 

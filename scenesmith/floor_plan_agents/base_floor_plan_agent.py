@@ -26,15 +26,25 @@ class BaseFloorPlanAgent(ABC):
     NOTE: A new FloorPlanAgent instance is created for each house/scene.
     """
 
-    def __init__(self, cfg: DictConfig, logger: BaseLogger):
+    def __init__(
+        self,
+        cfg: DictConfig,
+        logger: BaseLogger,
+        materials_server_host: str = "127.0.0.1",
+        materials_server_port: int = 7008,
+    ):
         """Initialize base floor plan agent.
 
         Args:
             cfg: Configuration for floor plan generation.
             logger: Scene-specific logger from experiment.
+            materials_server_host: Host for materials retrieval server.
+            materials_server_port: Port for materials retrieval server.
         """
         self.cfg = cfg
         self.logger = logger
+        self.materials_server_host = materials_server_host
+        self.materials_server_port = materials_server_port
 
         # Floor plan mode: "room" (single room) or "house" (multi-room).
         self.mode = cfg.mode
@@ -73,6 +83,8 @@ class BaseFloorPlanAgent(ABC):
             default_wall_material=self.cfg.materials.default_wall_material,
             default_floor_material=self.cfg.materials.default_floor_material,
             output_dir=output_dir,
+            retrieval_server_host=self.materials_server_host,
+            retrieval_server_port=self.materials_server_port,
         )
 
     def _create_door_window_config(self) -> DoorWindowConfig:

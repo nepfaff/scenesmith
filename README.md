@@ -77,16 +77,36 @@ Code for "SceneSmith: Agentic Generation of Simulation-Ready Indoor Scenes".
 ### Local Install
 
 This repository uses [uv](https://docs.astral.sh/uv) for dependency management.
+The main environment uses Python 3.12 for Drake and the default SAM3D/Open3D
+asset generation backend. Blender rendering uses a separate Python 3.13
+environment because `bpy` 5.x wheels require Python 3.13.
 
 Install uv:
 ```sh
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
+Install Linux system libraries used by headless Blender rendering:
+```sh
+sudo apt-get update
+sudo apt-get install -y \
+  libgl1 libegl1 libxrender1 libxkbcommon0 libsm6 libxext6 libxi6 \
+  libxxf86vm1 libglib2.0-0
+```
+
 Install the dependencies (including dev tools like pytest) into `.venv`:
 ```sh
 uv sync
 ```
+
+Install the Blender server environment:
+```sh
+bash scripts/setup_blender_python.sh
+```
+
+This creates `.venv-blender` from `scripts/blender_server/pyproject.toml`. It is
+kept separate because `bpy` 5.x requires Python 3.13 while the main SceneSmith
+environment intentionally stays on Python 3.12 for SAM3D/Open3D.
 
 To install without dev dependencies:
 ```sh
@@ -122,6 +142,11 @@ sudo apt-get install bubblewrap
 This enables GPU isolation for EEVEE Next rendering, preventing OOM errors when
 running many scenes in parallel. Each scene's BlenderServer is isolated to a single
 GPU via OS-level namespacing. Without bubblewrap, all Blender instances share GPU 0.
+
+Blender rendering runs in a separate Python process. By default SceneSmith uses
+`.venv-blender/bin/python` when the main environment cannot import `bpy`. For
+advanced debugging, `SCENESMITH_BLENDER_PYTHON` can override the Python
+executable used by the Blender server.
 
 ### Asset Generation Backends
 

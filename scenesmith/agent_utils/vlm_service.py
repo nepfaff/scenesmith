@@ -2,7 +2,7 @@ import logging
 
 from typing import Any
 
-from openai import OpenAI
+from openai import OpenAI, Timeout
 
 console_logger = logging.getLogger(__name__)
 
@@ -16,15 +16,18 @@ class VLMService:
     Chat API for standard models) based on model capabilities.
     """
 
-    def __init__(self, service_tier: str | None = None) -> None:
+    def __init__(
+        self, service_tier: str | None = None, timeout: Timeout | None = None
+    ) -> None:
         """Initialize OpenAI client.
 
         Args:
             service_tier: Optional service tier for API processing priority.
                 Valid values: "default", "flex", "priority", or None to use
                 project default.
+            timeout: Optional timeout for OpenAI API requests.
         """
-        self.client = OpenAI()
+        self.client = OpenAI(timeout=timeout) if timeout is not None else OpenAI()
         # Cache for model type detection.
         self._reasoning_models = {"gpt-5", "gpt-5.2", "o3", "o4"}
         self.service_tier = service_tier

@@ -105,6 +105,8 @@ class StatefulFloorPlanAgent(BaseStatefulAgent, BaseFloorPlanAgent):
         self,
         cfg: DictConfig,
         logger: BaseLogger,
+        materials_server_host: str = "127.0.0.1",
+        materials_server_port: int = 7008,
         render_gpu_id: int | None = None,
     ):
         """Initialize the floor plan agent.
@@ -112,10 +114,18 @@ class StatefulFloorPlanAgent(BaseStatefulAgent, BaseFloorPlanAgent):
         Args:
             cfg: Hydra configuration for the agent.
             logger: Logger for output and debugging.
+            materials_server_host: Host for materials retrieval server.
+            materials_server_port: Port for materials retrieval server.
             render_gpu_id: GPU device ID for Blender rendering. When set, uses
                 bubblewrap to isolate the BlenderServer to this GPU.
         """
-        BaseFloorPlanAgent.__init__(self, cfg=cfg, logger=logger)
+        BaseFloorPlanAgent.__init__(
+            self,
+            cfg=cfg,
+            logger=logger,
+            materials_server_host=materials_server_host,
+            materials_server_port=materials_server_port,
+        )
         BaseStatefulAgent.__init__(self, cfg=cfg, logger=logger)
 
         # Start BlenderServer for rendering.

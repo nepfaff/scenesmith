@@ -37,10 +37,23 @@ jobs:
       - name: Install system dependencies for rendering
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb libegl1
+          sudo apt-get install -y \
+            xvfb \
+            libgl1 \
+            libegl1 \
+            libxrender1 \
+            libxkbcommon0 \
+            libsm6 \
+            libxext6 \
+            libxi6 \
+            libxxf86vm1 \
+            libglib2.0-0
 
       - name: Install dependencies
         run: uv sync
+
+      - name: Set up Blender Python
+        run: bash scripts/setup_blender_python.sh
 
       - name: Restore testmon cache
         id: cache-testmon-restore

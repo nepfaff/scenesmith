@@ -3,19 +3,28 @@
 This module provides pytest hooks and fixtures that apply across all tests.
 """
 
-# isort: off
-# Import bpy first to avoid OpenGL context conflicts with Drake rendering.
-# When bpy is imported after Drake initializes its rendering context, there's a
-# segfault due to conflicting OpenGL contexts. Importing bpy first ensures bpy
-# initializes its context before Drake, avoiding the conflict.
-import bpy  # noqa: F401
-
-# isort: on
-
 import gc
 import logging
+import sys
+
+from unittest.mock import MagicMock
 
 import pytest
+
+# isort: off
+# Import bpy first to avoid OpenGL context conflicts with Drake rendering when
+# Blender's Python module is installed. Drake-only tests can run without bpy.
+try:
+    import bpy  # noqa: F401
+except ImportError:
+    sys.modules["bpy"] = MagicMock()
+
+try:
+    import bmesh  # noqa: F401
+except ImportError:
+    sys.modules["bmesh"] = MagicMock()
+
+# isort: on
 
 console_logger = logging.getLogger(__name__)
 

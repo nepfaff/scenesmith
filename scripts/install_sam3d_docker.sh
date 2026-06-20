@@ -12,6 +12,16 @@ set -euo pipefail
 SAM3D_OBJECTS_COMMIT="${SAM3D_OBJECTS_COMMIT:-81a82373a3a7f4cbb00bd5b32aaf6b4d0f659ddd}"
 SAM3_COMMIT="${SAM3_COMMIT:-11dec2936de97f2857c1f76b66d982d5a001155d}"
 
+if [ -n "${VIRTUAL_ENV:-}" ] && [ -x "${VIRTUAL_ENV}/bin/python" ]; then
+    PYTHON_BIN="${VIRTUAL_ENV}/bin/python"
+elif [ -x ".venv/bin/python" ]; then
+    export VIRTUAL_ENV="$(pwd)/.venv"
+    export PATH="${VIRTUAL_ENV}/bin:${PATH}"
+    PYTHON_BIN="${VIRTUAL_ENV}/bin/python"
+else
+    PYTHON_BIN="$(command -v python3)"
+fi
+
 echo "========================================="
 echo "SAM3D Docker Installation"
 echo "========================================="
@@ -52,7 +62,17 @@ git -C SAM3 checkout --detach "${SAM3_COMMIT}"
 echo ""
 echo "Step 2: Installing SAM3..."
 cd SAM3
-uv pip install -e ".[notebooks]"
+# Install SAM3 without asking it to resolve dependencies, then install the
+# runtime pieces SceneSmith uses explicitly. This keeps the main uv project in
+# charge of core pins such as torch, torchvision, numpy, and Drake.
+uv pip install -e . --no-deps
+uv pip install \
+    "iopath>=0.1.10" \
+    "pycocotools>=2.0.7" \
+    "decord>=0.6.0" \
+    "scikit-learn>=1.4" \
+    "ftfy>=6.1.1" \
+    "timm>=1.0.17"
 cd ..
 echo "SAM3 installed"
 
@@ -61,10 +81,28 @@ echo "Step 3: Installing SAM 3D Objects dependencies..."
 
 cd sam-3d-objects
 
-# Install non-CUDA dependencies from requirements.txt.
+# Install the non-CUDA runtime dependencies used by SceneSmith's SAM3D path.
 echo "Installing sam-3d-objects core dependencies..."
-grep -v -E "^(torch|torchvision|torchaudio|cuda-python|nvidia-|MoGe|flash_attn|bpy|wandb|jupyter|tensorboard|Flask|webdataset|sagemaker)" requirements.txt > /tmp/filtered_requirements.txt
-uv pip install -r /tmp/filtered_requirements.txt
+uv pip install \
+    astor \
+    easydict \
+    einops-exts \
+    fvcore \
+    loguru \
+    optree \
+    roma \
+    rootutils \
+    OpenEXR \
+    pymeshfix \
+    igraph \
+    "lightning==2.3.3" \
+    plotly \
+    plyfile \
+    pyvista \
+    psutil \
+    "spconv-cu121==2.3.8" \
+    "open3d>=0.19.0" \
+    "numpy>=1.26,<2.0"
 
 # Install CUDA-dependent packages with --no-build-isolation.
 echo ""
@@ -74,14 +112,14 @@ uv pip install --no-build-isolation \
 
 echo ""
 echo "Installing nvdiffrast..."
-uv pip install --no-build-isolation \
+uv pip install --reinstall --no-cache --no-build-isolation \
     "git+https://github.com/NVlabs/nvdiffrast.git"
+uv pip install "numpy>=1.26,<2.0"
 
 echo ""
 echo "Pre-compiling nvdiffrast CUDA extensions..."
-python3 << 'PYEOF'
+if "${PYTHON_BIN}" << 'PYEOF'
 import sys
-import os
 
 try:
     import torch
@@ -96,23 +134,18 @@ try:
 
     import nvdiffrast.torch as dr
     ctx = dr.RasterizeCudaContext()
-
-    import torch.utils.cpp_extension as cpp_ext
-    build_dir = cpp_ext._get_build_directory("nvdiffrast_plugin", False)
-    so_path = os.path.join(build_dir, "nvdiffrast_plugin.so")
-
-    if os.path.exists(so_path):
-        size_mb = os.path.getsize(so_path) / (1024 * 1024)
-        print(f"SUCCESS: {so_path} ({size_mb:.1f} MB)")
-    else:
-        print("WARNING: .so file not found, compilation may have failed")
-        sys.exit(1)
+    print(f"SUCCESS: {type(ctx).__name__} initialized")
 
 except Exception as e:
     print(f"Pre-compilation failed: {e}")
-    print("NOTE: nvdiffrast will compile on first SAM3D use")
-    sys.exit(0)  # Non-fatal.
+    print("NOTE: nvdiffrast may need to be rebuilt for this Torch/CUDA environment")
+    sys.exit(1)
 PYEOF
+then
+    echo "nvdiffrast pre-compiled successfully"
+else
+    echo "nvdiffrast pre-compilation skipped"
+fi
 
 echo ""
 echo "Installing kaolin 0.17.0..."
@@ -126,7 +159,9 @@ uv pip install --no-build-isolation \
 
 echo ""
 echo "Installing inference dependencies..."
-uv pip install seaborn==0.13.2 gradio==5.49.0 imageio utils3d
+uv pip install seaborn==0.13.2 gradio==5.49.0 imageio
+uv pip install utils3d --no-deps
+uv pip install "numpy>=1.26,<2.0"
 
 echo ""
 echo "Installing MoGe depth model..."

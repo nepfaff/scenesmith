@@ -3,22 +3,25 @@
 # etc.) are auto-managed by the pipeline inside the container.
 
 # =============================================================================
-# Stage 1: Base system with Python 3.11 and system dependencies.
+# Stage 1: Base system with Python 3.12/3.13 and system dependencies.
 # =============================================================================
 FROM nvidia/cuda:12.4.0-devel-ubuntu22.04 AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install Python 3.11 via deadsnakes PPA and system packages.
+# Install Python 3.12 for SceneSmith and Python 3.13 for the bpy 5.x server.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     software-properties-common \
     && add-apt-repository ppa:deadsnakes/ppa \
     && apt-get update && apt-get install -y --no-install-recommends \
-    python3.11 \
-    python3.11-dev \
-    python3.11-venv \
-    python3.11-distutils \
-    libpython3.11-dev \
+    python3.12 \
+    python3.12-dev \
+    python3.12-venv \
+    libpython3.12-dev \
+    python3.13 \
+    python3.13-dev \
+    python3.13-venv \
+    libpython3.13-dev \
     git \
     git-lfs \
     wget \
@@ -38,9 +41,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Set Python 3.11 as default.
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
-    && update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1
+# Set Python 3.12 as the default SceneSmith runtime.
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 \
+    && update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1
 
 # Install uv package manager.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
@@ -60,7 +63,14 @@ WORKDIR /app
 FROM base AS deps
 
 COPY pyproject.toml uv.lock .python-version README.md ./
-RUN uv sync --frozen --no-dev
+COPY scripts/blender_server/pyproject.toml scripts/blender_server/uv.lock scripts/blender_server/
+RUN uv sync --frozen --no-dev \
+    && UV_PROJECT_ENVIRONMENT=/app/.venv-blender \
+        uv sync \
+        --project scripts/blender_server \
+        --python /usr/bin/python3.13 \
+        --frozen \
+        --no-dev
 
 # =============================================================================
 # Stage 3: SAM3D backend (optional but included in image).

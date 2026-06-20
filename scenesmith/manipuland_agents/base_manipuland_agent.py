@@ -117,7 +117,10 @@ class BaseManipulandAgent(ABC):
             raise
 
         service_tier = getattr(self.cfg.openai, "service_tier", None)
-        self.vlm_service = VLMService(service_tier=service_tier)
+        get_api_timeout = getattr(self, "_get_api_timeout", lambda: None)
+        self.vlm_service = VLMService(
+            service_tier=service_tier, timeout=get_api_timeout()
+        )
         self.asset_manager = AssetManager(
             logger=logger,
             vlm_service=self.vlm_service,

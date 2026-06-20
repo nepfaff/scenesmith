@@ -202,16 +202,18 @@ def _cluster_faces_by_normal(
         adjacency.setdefault(face_a, []).append(face_b)
         adjacency.setdefault(face_b, []).append(face_a)
 
-    # Sort faces by area for processing (largest first).
+    # Sort faces by area for processing (largest first). Keep this as an indexed
+    # array scan; removing from the front of a Python list is quadratic on large
+    # generated meshes.
     sorted_faces = np.argsort(-face_areas)
-    # Convert to list for efficient iteration while removing elements.
-    sorted_unclustered = [face for face in sorted_faces]
+    sorted_face_index = 0
 
     while unclustered:
-        # Select largest unclustered face as seed (O(1) amortized).
+        # Select largest unclustered face as seed.
         seed_face = None
-        while sorted_unclustered:
-            candidate = sorted_unclustered.pop(0)
+        while sorted_face_index < len(sorted_faces):
+            candidate = int(sorted_faces[sorted_face_index])
+            sorted_face_index += 1
             if candidate in unclustered:
                 seed_face = candidate
                 break
@@ -1039,6 +1041,22 @@ def extract_support_surfaces_from_mesh(
 
     # Cluster faces by normal similarity.
     clusters = _cluster_faces_by_normal(mesh=mesh, config=config)
+
+    # A cluster with less total mesh area than the minimum surface area can only
+    # split into still-smaller clusters, so it cannot produce a valid support
+    # surface. Filtering here avoids fitting tens of thousands of tiny decorative
+    # clusters on high-poly generated furniture.
+    num_clusters_before_area_filter = len(clusters)
+    clusters = [
+        cluster
+        for cluster in clusters
+        if cluster.total_area >= config.min_surface_area_m2
+    ]
+    if len(clusters) != num_clusters_before_area_filter:
+        console_logger.debug(
+            f"After cluster area pre-filter (>= {config.min_surface_area_m2}m²): "
+            f"{len(clusters)}/{num_clusters_before_area_filter} clusters remain"
+        )
 
     # Split clusters by height to separate multi-level surfaces.
     clusters = _split_clusters_by_height(clusters=clusters, mesh=mesh, config=config)

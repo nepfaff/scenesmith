@@ -14,7 +14,7 @@ numpy>=1.26,<2.0
 trimesh>=4.0.0
 Pillow>=10.0.0
 scipy>=1.10.0
-drake>=1.44.0
+drake==1.52.1
 omegaconf>=2.3.0
 lxml>=5.0.0
 mujoco-usd-converter==0.1.0a3

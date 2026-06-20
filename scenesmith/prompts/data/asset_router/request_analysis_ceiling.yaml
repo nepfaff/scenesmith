@@ -34,12 +34,10 @@ prompt: |
 
   <strategies>
   Choose strategy based on ceiling item type:
-  - ["articulated", "generated"]: Ceiling fixtures with moving/adjustable parts.
-    Examples: ceiling fan (rotating blades), track lighting (adjustable heads),
-    adjustable pendant light, recessed light with adjustable trim.
-  - ["generated"]: Static ceiling fixtures without moving parts.
-    Examples: chandelier, fixed pendant light, flush mount light,
-    smoke detector, sprinkler head, security camera, exit sign.
+  - ["generated"]: All ceiling fixtures.
+    Examples: chandelier, ceiling fan, track lighting, adjustable pendant light,
+    fixed pendant light, flush mount light, smoke detector, sprinkler head,
+    security camera, exit sign.
   </strategies>
 
   <output_schema>
@@ -50,7 +48,7 @@ prompt: |
         "short_name": "string (lowercase_with_underscores)",
         "dimensions": [width, depth, height],
         "object_type": "CEILING_MOUNTED",
-        "strategies": ["articulated", "generated"] | ["generated"]
+        "strategies": ["generated"]
       }
     ],
     "original_description": "string|null (set if split)",
@@ -93,7 +91,7 @@ prompt: |
       "short_name": "ceiling_fan",
       "dimensions": [1.2, 1.2, 0.4],
       "object_type": "CEILING_MOUNTED",
-      "strategies": ["articulated", "generated"]
+      "strategies": ["generated"]
     }],
     "original_description": null
   }

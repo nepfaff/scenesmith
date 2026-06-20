@@ -169,6 +169,21 @@ class TestAssetManager(unittest.TestCase):
         self.assertEqual(self.asset_manager.output_dir, self.output_dir)
         self.assertEqual(self.asset_manager.logger, self.mock_logger)
 
+    def test_create_asset_paths_uses_unique_basenames_for_duplicate_short_names(self):
+        """Duplicate short names in one batch should not share output paths."""
+        asset_paths = self.asset_manager._create_asset_paths(
+            object_descriptions=["bed"] * 4,
+            short_names=["bed"] * 4,
+        )
+
+        self.assertEqual(len({config.image_path for config in asset_paths}), 4)
+        self.assertEqual(len({config.geometry_path for config in asset_paths}), 4)
+        self.assertEqual(len({config.sdf_dir for config in asset_paths}), 4)
+        for config in asset_paths:
+            self.assertTrue(config.image_path.name.startswith("bed_"))
+            self.assertTrue(config.geometry_path.name.startswith("bed_"))
+            self.assertTrue(config.sdf_dir.name.startswith("bed_"))
+
     @patch("scenesmith.agent_utils.asset_manager.scale_mesh_uniformly_to_dimensions")
     @patch("pathlib.Path.glob")
     @patch(
@@ -1094,6 +1109,8 @@ class TestAssetManagerDimensionControl(unittest.TestCase):
         mock_scale_mesh.assert_called_once()
         call_args = mock_scale_mesh.call_args
         self.assertEqual(call_args[1]["desired_dimensions"], [1.8, 0.9, 0.75])
+        self.assertFalse(call_args[1]["preserve_aspect_ratio"])
+        self.assertEqual(call_args[1]["desired_dimensions_frame"], "drake_yup_to_zup")
 
 
 if __name__ == "__main__":

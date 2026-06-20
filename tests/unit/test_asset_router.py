@@ -2,11 +2,109 @@
 
 import unittest
 
-from unittest.mock import MagicMock
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import yaml
 
 from scenesmith.agent_utils.asset_router import AssetRouter
-from scenesmith.agent_utils.asset_router.dataclasses import AnalysisResult, AssetItem
+from scenesmith.agent_utils.asset_router.dataclasses import (
+    AnalysisResult,
+    AssetItem,
+    GeneratedGeometry,
+    ValidationResult,
+)
+from scenesmith.agent_utils.asset_router.router import _unique_asset_basename
 from scenesmith.agent_utils.room import AgentType, ObjectType
+
+
+class TestAssetRouterPathNames(unittest.TestCase):
+    """Test path-name helpers used during generated asset routing."""
+
+    def test_unique_asset_basename_handles_parallel_duplicate_short_names(self) -> None:
+        """Duplicate short names should still produce distinct filesystem basenames."""
+        basenames = {_unique_asset_basename("bed") for _ in range(16)}
+
+        self.assertEqual(len(basenames), 16)
+        for basename in basenames:
+            self.assertTrue(basename.startswith("bed_"))
+
+
+class TestWallAssetDimensionConvention(unittest.TestCase):
+    """Test wall asset router dimension handling."""
+
+    def test_wall_request_analysis_prompt_uses_width_depth_height(self) -> None:
+        """Wall router prompt should match the shared [width, depth, height] contract."""
+        prompt_path = (
+            Path(__file__).parents[2]
+            / "scenesmith/prompts/data/asset_router/request_analysis_wall.yaml"
+        )
+        prompt_text = yaml.safe_load(prompt_path.read_text())["prompt"]
+
+        self.assertIn('"dimensions": [width, depth, height]', prompt_text)
+        self.assertIn("Dimensions must always be [width, depth, height]", prompt_text)
+        self.assertNotIn('"dimensions": [width, height, depth]', prompt_text)
+
+    def test_wall_thin_covering_uses_height_from_third_dimension(self) -> None:
+        """Wall thin coverings should use dimensions as width, depth, height."""
+        cfg = MagicMock()
+        thin_covering_cfg = cfg.asset_manager.router.strategies.thin_covering
+        thin_covering_cfg.thickness_m = 0.01
+        thin_covering_cfg.texture_scale = 1.0
+        router = AssetRouter(
+            agent_type=AgentType.WALL_MOUNTED,
+            vlm_service=MagicMock(),
+            cfg=cfg,
+        )
+        item = AssetItem(
+            description="woven textile wall hanging",
+            short_name="wall_hanging",
+            dimensions=[0.6, 0.04, 0.9],
+            object_type=ObjectType.WALL_MOUNTED,
+            strategies=["thin_covering"],
+            thin_covering_type="single_image",
+        )
+        material = MagicMock()
+        material.material_id = "mat_0"
+        material.material_path = "/tmp/material"
+        material.similarity_score = 1.0
+        response = MagicMock(results=[material])
+        materials_client = MagicMock()
+        materials_client.retrieve_materials.return_value = iter([(0, response)])
+        generated = GeneratedGeometry(
+            geometry_path=Path("/tmp/wall_hanging.glb"),
+            item=item,
+            asset_source="thin_covering",
+        )
+
+        with (
+            patch.object(
+                router,
+                "_generate_thin_covering_geometry",
+                return_value=generated,
+            ) as mock_generate,
+            patch.object(
+                router,
+                "_validate_thin_covering",
+                return_value=ValidationResult(is_acceptable=True, reason="ok"),
+            ),
+        ):
+            result = router._try_thin_covering_strategy(
+                item=item,
+                max_retries=1,
+                materials_client=materials_client,
+                image_generator=None,
+                geometry_dir=Path("/tmp/geometry"),
+                debug_dir=Path("/tmp/debug"),
+            )
+
+        self.assertIs(result, generated)
+        mock_generate.assert_called_once()
+        call_kwargs = mock_generate.call_args.kwargs
+        self.assertEqual(call_kwargs["width"], 0.6)
+        self.assertEqual(call_kwargs["second_dim"], 0.9)
+        self.assertEqual(call_kwargs["thickness"], 0.01)
+        self.assertTrue(call_kwargs["is_wall_mode"])
 
 
 class TestAnalysisResultWasModified(unittest.TestCase):
@@ -288,6 +386,31 @@ class TestAnalysisResponseParsing(unittest.TestCase):
         result = router._parse_analysis_response(response)
         assert len(result.items) == 1
         assert result.items[0].object_type == ObjectType.FURNITURE
+
+    def test_parse_ceiling_item_removes_articulated_strategy(self) -> None:
+        """Ceiling assets use generated geometry because articulated retrieval has no ceiling category."""
+        router = AssetRouter(
+            agent_type=AgentType.CEILING_MOUNTED,
+            vlm_service=MagicMock(),
+            cfg=MagicMock(),
+        )
+
+        response = {
+            "items": [
+                {
+                    "description": "adjustable ceiling spotlight",
+                    "short_name": "spotlight",
+                    "dimensions": [0.12, 0.12, 0.15],
+                    "object_type": "CEILING_MOUNTED",
+                    "strategies": ["articulated", "generated"],
+                }
+            ],
+            "original_description": None,
+        }
+
+        result = router._parse_analysis_response(response)
+        assert len(result.items) == 1
+        assert result.items[0].strategies == ["generated"]
 
 
 if __name__ == "__main__":

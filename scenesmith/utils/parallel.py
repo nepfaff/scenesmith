@@ -41,9 +41,8 @@ def _get_signal_name(exit_code: int) -> str:
 def _reset_worker_logging() -> None:
     """Reset logging handlers at start of worker process.
 
-    Prevents file descriptor inheritance issues with fork(). When forking,
-    child processes can inherit file handlers from the parent, causing logs
-    to be written to wrong files.
+    Prevents file descriptor inheritance issues if a platform or configured
+    multiprocessing context inherits handlers from the parent process.
     """
     root = logging.getLogger()
     for handler in root.handlers[:]:
@@ -103,7 +102,8 @@ def run_parallel_isolated(
         return_values=True) or None (if return_values=False).
         For failed tasks: result_or_error is the error message string.
     """
-    result_queue: multiprocessing.Queue = multiprocessing.Queue()
+    mp_ctx = multiprocessing.get_context("spawn")
+    result_queue: multiprocessing.Queue = mp_ctx.Queue()
     pending = list(tasks)
     active: dict[int, tuple[multiprocessing.Process, str]] = {}
     results: dict[str, tuple[bool, Any]] = {}
@@ -112,7 +112,7 @@ def run_parallel_isolated(
         # Spawn processes up to max_workers.
         while len(active) < max_workers and pending:
             task_id, target, kwargs = pending.pop(0)
-            p = multiprocessing.Process(
+            p = mp_ctx.Process(
                 target=_worker_wrapper,
                 args=(target, kwargs, task_id, result_queue, return_values),
             )

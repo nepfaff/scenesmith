@@ -42,6 +42,12 @@ class MaterialsConfig:
     output_dir: Path | None = None
     """Output directory for scene. Materials from server will be copied here."""
 
+    retrieval_server_host: str = "127.0.0.1"
+    """Host for the materials retrieval server."""
+
+    retrieval_server_port: int = 7008
+    """Port for the materials retrieval server."""
+
 
 class MaterialsResolver:
     """Resolves material requests to paths.
@@ -180,7 +186,10 @@ class MaterialsResolver:
         materials_output_dir = self.output_dir / "materials"
         materials_output_dir.mkdir(parents=True, exist_ok=True)
 
-        client = MaterialsRetrievalClient()
+        client = MaterialsRetrievalClient(
+            host=self.config.retrieval_server_host,
+            port=self.config.retrieval_server_port,
+        )
         request = MaterialsRetrievalServerRequest(
             material_description=description,
             output_dir=str(materials_output_dir),

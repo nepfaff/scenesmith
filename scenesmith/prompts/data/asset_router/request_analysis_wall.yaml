@@ -60,7 +60,7 @@ prompt: |
       {
         "description": "string",
         "short_name": "string (lowercase_with_underscores)",
-        "dimensions": [width, height, depth],
+        "dimensions": [width, depth, height],
         "object_type": "WALL_MOUNTED",
         "strategies": ["articulated", "generated"] | ["generated"] | ["thin_covering"],
         "thin_covering_type": "single_image|tileable|null (only for thin_covering)"
@@ -71,14 +71,23 @@ prompt: |
   }
   </output_schema>
 
+  <dimension_convention>
+  Dimensions must always be [width, depth, height] in meters:
+  - width: horizontal span along the wall
+  - depth: protrusion away from the wall
+  - height: vertical span on the wall
+  Keep the input dimension order unless splitting a composite item requires
+  separate dimensions for each resulting object.
+  </dimension_convention>
+
   <examples>
-  Input: "abstract painting", dimensions=[0.8, 0.6, 0.01]
+  Input: "abstract painting", dimensions=[0.8, 0.01, 0.6]
   Output:
   {
     "items": [{
       "description": "abstract painting",
       "short_name": "painting",
-      "dimensions": [0.8, 0.6, 0.01],
+      "dimensions": [0.8, 0.01, 0.6],
       "object_type": "WALL_MOUNTED",
       "strategies": ["thin_covering"],
       "thin_covering_type": "single_image"
@@ -86,91 +95,91 @@ prompt: |
     "original_description": null
   }
 
-  Input: "framed landscape painting", dimensions=[0.8, 0.6, 0.05]
+  Input: "framed landscape painting", dimensions=[0.8, 0.05, 0.6]
   Output:
   {
     "items": [{
       "description": "framed landscape painting",
       "short_name": "painting",
-      "dimensions": [0.8, 0.6, 0.05],
+      "dimensions": [0.8, 0.05, 0.6],
       "object_type": "WALL_MOUNTED",
       "strategies": ["generated"]
     }],
     "original_description": null
   }
 
-  Input: "wall clock", dimensions=[0.3, 0.3, 0.05]
+  Input: "wall clock", dimensions=[0.3, 0.05, 0.3]
   Output:
   {
     "items": [{
       "description": "wall clock",
       "short_name": "clock",
-      "dimensions": [0.3, 0.3, 0.05],
+      "dimensions": [0.3, 0.05, 0.3],
       "object_type": "WALL_MOUNTED",
       "strategies": ["generated"]
     }],
     "original_description": null
   }
 
-  Input: "bathroom medicine cabinet", dimensions=[0.5, 0.6, 0.15]
+  Input: "bathroom medicine cabinet", dimensions=[0.5, 0.15, 0.6]
   Output:
   {
     "items": [{
       "description": "bathroom medicine cabinet",
       "short_name": "medicine_cabinet",
-      "dimensions": [0.5, 0.6, 0.15],
+      "dimensions": [0.5, 0.15, 0.6],
       "object_type": "WALL_MOUNTED",
       "strategies": ["articulated", "generated"]
     }],
     "original_description": null
   }
 
-  Input: "kitchen wall cabinet with doors", dimensions=[0.8, 0.7, 0.35]
+  Input: "kitchen wall cabinet with doors", dimensions=[0.8, 0.35, 0.7]
   Output:
   {
     "items": [{
       "description": "kitchen wall cabinet with doors",
       "short_name": "wall_cabinet",
-      "dimensions": [0.8, 0.7, 0.35],
+      "dimensions": [0.8, 0.35, 0.7],
       "object_type": "WALL_MOUNTED",
       "strategies": ["articulated", "generated"]
     }],
     "original_description": null
   }
 
-  Input: "light switch", dimensions=[0.07, 0.12, 0.02]
+  Input: "light switch", dimensions=[0.07, 0.02, 0.12]
   Output:
   {
     "items": [{
       "description": "light switch",
       "short_name": "light_switch",
-      "dimensions": [0.07, 0.12, 0.02],
+      "dimensions": [0.07, 0.02, 0.12],
       "object_type": "WALL_MOUNTED",
       "strategies": ["articulated", "generated"]
     }],
     "original_description": null
   }
 
-  Input: "decorative mirror", dimensions=[0.5, 0.7, 0.03]
+  Input: "decorative mirror", dimensions=[0.5, 0.03, 0.7]
   Output:
   {
     "items": [{
       "description": "decorative mirror",
       "short_name": "mirror",
-      "dimensions": [0.5, 0.7, 0.03],
+      "dimensions": [0.5, 0.03, 0.7],
       "object_type": "WALL_MOUNTED",
       "strategies": ["generated"]
     }],
     "original_description": null
   }
 
-  Input: "canvas wall print", dimensions=[1.0, 0.7, 0.01]
+  Input: "canvas wall print", dimensions=[1.0, 0.01, 0.7]
   Output:
   {
     "items": [{
       "description": "canvas wall print",
       "short_name": "wall_print",
-      "dimensions": [1.0, 0.7, 0.01],
+      "dimensions": [1.0, 0.01, 0.7],
       "object_type": "WALL_MOUNTED",
       "strategies": ["thin_covering"],
       "thin_covering_type": "single_image"

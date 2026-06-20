@@ -285,10 +285,10 @@ openai:
 
 # OpenAI API timeout configuration (seconds).
 api_timeout:
-  connect: 10.0  # Connection establishment
-  read: 1800  # 30 minutes
-  write: 1800  # 30 minutes
-  pool: 1800  # 30 minutes
+  connect: 30.0
+  read: 600.0
+  write: 600.0
+  pool: 600.0
 
 # Loop detection configuration for function tools
 loop_detection:

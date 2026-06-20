@@ -12,6 +12,7 @@ from omegaconf import DictConfig
 from PIL import Image, ImageDraw, ImageFont
 
 from scenesmith.agent_utils.blender.camera_utils import get_pixel_coordinates
+from scenesmith.agent_utils.blender.font_utils import load_annotation_font
 from scenesmith.agent_utils.house import ClearanceOpeningData
 
 console_logger = logging.getLogger(__name__)
@@ -135,38 +136,6 @@ def annotate_image_with_coordinates(
     )
 
     pil_image.save(str(image_path))
-
-
-def load_annotation_font(
-    image_width: int, base_font_size_divisor: float, min_font_size: int = 16
-) -> ImageFont.ImageFont:
-    """Load font for coordinate annotations with fallback logic.
-
-    Args:
-        image_width: Width of the image in pixels.
-        base_font_size_divisor: Divisor to calculate font size (image_width / divisor).
-        min_font_size: Minimum font size to use (default: 16).
-
-    Returns:
-        Loaded font with fallback to default if system fonts unavailable.
-    """
-    base_font_size = int(image_width / base_font_size_divisor)
-    font_size = max(min_font_size, base_font_size)
-    console_logger.debug(f"Base font size: {base_font_size}, Font size: {font_size}")
-
-    font_paths = [
-        "arial.ttf",
-        "/System/Library/Fonts/Arial.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    ]
-
-    for font_path in font_paths:
-        try:
-            return ImageFont.truetype(font_path, font_size)
-        except (OSError, IOError):
-            continue
-
-    return ImageFont.load_default()
 
 
 def draw_coordinate_annotations(
@@ -1335,7 +1304,7 @@ def add_wall_labels_to_top_view(
         scene = bpy.context.scene
 
         # Load font.
-        font = load_annotation_font(image_with=img.width, base_font_size_divisor=70)
+        font = load_annotation_font(image_width=img.width, base_font_size_divisor=70)
 
         for wall_data in wall_surfaces:
             surface_id = wall_data.get(

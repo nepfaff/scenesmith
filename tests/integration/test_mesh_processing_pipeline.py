@@ -29,10 +29,7 @@ from scenesmith.agent_utils.mesh_canonicalization import canonicalize_mesh
 from scenesmith.agent_utils.mesh_physics_analyzer import (
     analyze_mesh_orientation_and_material,
 )
-from scenesmith.agent_utils.mesh_utils import (
-    convert_glb_to_gltf,
-    scale_mesh_uniformly_to_dimensions,
-)
+from scenesmith.agent_utils.mesh_utils import scale_mesh_uniformly_to_dimensions
 from scenesmith.agent_utils.room import ObjectType
 from scenesmith.agent_utils.sdf_generator import generate_drake_sdf
 from scenesmith.agent_utils.vlm_service import VLMService
@@ -272,11 +269,12 @@ class TestMeshProcessingPipeline(unittest.TestCase):
 
         # Convert GLB to Y-up GLTF (required before analysis and canonicalization).
         gltf_path = self.temp_dir / "test_rectangle.gltf"
-        convert_glb_to_gltf(
+        self.blender_server.convert_glb_to_gltf(
             input_path=test_mesh_path,
             output_path=gltf_path,
             export_yup=True,
         )
+        self.assertTrue(gltf_path.exists(), "Converted GLTF should be created")
 
         # VLM analysis for orientation, material, and mass.
         analysis = analyze_mesh_orientation_and_material(

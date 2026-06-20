@@ -24,13 +24,13 @@ prompts: [
 num_workers: 1
 
 # Pipeline stage control
-# Stages run in order: floor_plan → furniture → wall_mounted → manipuland
+# Stages run in order: floor_plan → furniture → wall_mounted → ceiling_mounted → manipuland
 # Set start_stage to resume from a specific stage (loads previous stage's state)
 # Set stop_stage to stop after a specific stage (saves state for later resumption)
 # Set resume_from_path to branch from a previous experiment's output
 pipeline:
-  start_stage: "floor_plan"  # Options: "floor_plan", "furniture", "wall_mounted", "manipuland"
-  stop_stage: "manipuland"  # Options: "floor_plan", "furniture", "wall_mounted", "manipuland"
+  start_stage: "floor_plan"  # Options: "floor_plan", "furniture", "wall_mounted", "ceiling_mounted", "manipuland"
+  stop_stage: "manipuland"  # Options: "floor_plan", "furniture", "wall_mounted", "ceiling_mounted", "manipuland"
   # Path to source experiment dir (e.g., "outputs/2025-12-21/10-30-45")
   resume_from_path: null
   # Parallelize rooms within a house (mutually exclusive with num_workers > 1).
@@ -42,6 +42,7 @@ pipeline:
 geometry_generation_server:
   host: "127.0.0.1"
   port: 7005
+  preload_pipeline: true
 
 # HSSD retrieval server settings
 hssd_retrieval_server:

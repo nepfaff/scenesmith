@@ -19,7 +19,7 @@ from pydrake.all import ApplyCameraConfig, CameraConfig, RenderEngineGltfClientP
 from pydrake.common.schema import Transform
 from pydrake.math import RigidTransform as DrakeRigidTransform
 
-from scenesmith.agent_utils.blender.annotations import load_annotation_font
+from scenesmith.agent_utils.blender.font_utils import load_annotation_font
 from scenesmith.agent_utils.blender.server_manager import BlenderServer
 from scenesmith.agent_utils.drake_utils import create_plant_from_dmd
 from scenesmith.agent_utils.house import HouseLayout

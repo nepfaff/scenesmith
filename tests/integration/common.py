@@ -31,6 +31,17 @@ def has_hunyuan3d_installed() -> bool:
         return False
 
 
+def has_sam3d_installed() -> bool:
+    """Check if the default SAM3D backend assets are installed."""
+    required_paths = [
+        "external/SAM3/sam3",
+        "external/sam-3d-objects/sam3d_objects",
+        "external/checkpoints/sam3.pt",
+        "external/checkpoints/pipeline.yaml",
+    ]
+    return all(os.path.exists(path) for path in required_paths)
+
+
 def has_usd_export_env() -> bool:
     """Check if the MuJoCo/USD export test environment is available."""
     if os.getenv("SCENESMITH_RUN_USD_EXPORT_TESTS") != "1":

@@ -1,5 +1,6 @@
 """Unit tests for BlenderServer retry logic."""
 
+import sys
 import unittest
 
 from pathlib import Path
@@ -150,6 +151,93 @@ class TestBlenderServerRetry(unittest.TestCase):
             )
 
         self.assertEqual(result, [Path("/tmp/view1.png"), Path("/tmp/view2.png")])
+
+    @patch("scenesmith.agent_utils.blender.server_manager.is_port_available")
+    @patch("scenesmith.agent_utils.blender.server_manager.find_available_port")
+    @patch("scenesmith.agent_utils.blender.server_manager.time.sleep")
+    @patch.object(BlenderServer, "_find_blender_python")
+    @patch.object(Path, "exists")
+    @patch("tempfile.TemporaryDirectory")
+    @patch("subprocess.Popen")
+    def test_port_range_start_waits_until_selected_port_is_bound(
+        self,
+        mock_popen,
+        mock_temp_dir,
+        mock_exists,
+        mock_find_blender_python,
+        mock_sleep,
+        mock_find_available_port,
+        mock_is_port_available,
+    ) -> None:
+        """Range-based startup waits until the child binds the chosen port."""
+        mock_find_available_port.return_value = 8123
+        mock_is_port_available.return_value = False
+        mock_find_blender_python.return_value = sys.executable
+        mock_exists.return_value = True
+
+        mock_temp_dir_instance = MagicMock()
+        mock_temp_dir_instance.name = "/tmp/blender-test"
+        mock_temp_dir.return_value = mock_temp_dir_instance
+
+        mock_process = MagicMock()
+        mock_process.pid = 12345
+        mock_process.poll.return_value = None
+        mock_popen.return_value = mock_process
+
+        server = BlenderServer(
+            port_range=(8123, 8124),
+            server_startup_delay=0.0,
+            port_cleanup_delay=0.0,
+        )
+        server.start()
+
+        self.assertTrue(server.is_running())
+        self.assertEqual(server._actual_port, 8123)
+        mock_is_port_available.assert_called_with(host="127.0.0.1", port=8123)
+
+        server.stop()
+
+    @patch("scenesmith.agent_utils.blender.server_manager.find_available_port")
+    @patch("scenesmith.agent_utils.blender.server_manager.time.sleep")
+    @patch.object(BlenderServer, "_find_blender_python")
+    @patch.object(Path, "exists")
+    @patch("tempfile.TemporaryDirectory")
+    @patch("subprocess.Popen")
+    def test_port_range_start_fails_if_child_exits_during_startup(
+        self,
+        mock_popen,
+        mock_temp_dir,
+        mock_exists,
+        mock_find_blender_python,
+        mock_sleep,
+        mock_find_available_port,
+    ) -> None:
+        """Startup raises instead of treating another server on the port as ready."""
+        mock_find_available_port.return_value = 8123
+        mock_find_blender_python.return_value = sys.executable
+        mock_exists.return_value = True
+
+        mock_temp_dir_instance = MagicMock()
+        mock_temp_dir_instance.name = "/tmp/blender-test"
+        mock_temp_dir.return_value = mock_temp_dir_instance
+
+        mock_process = MagicMock()
+        mock_process.pid = 12345
+        mock_process.poll.return_value = 1
+        mock_popen.return_value = mock_process
+
+        server = BlenderServer(
+            port_range=(8123, 8124),
+            server_startup_delay=0.0,
+            port_cleanup_delay=0.0,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "exited during startup"):
+            server.start()
+
+        self.assertFalse(server.is_running())
+        self.assertIsNone(server._actual_port)
+        mock_temp_dir_instance.cleanup.assert_called()
 
 
 if __name__ == "__main__":

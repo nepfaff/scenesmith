@@ -89,9 +89,15 @@ class BaseExperiment(ABC):
                 "suffix."
             )
 
+        # Extract materials retrieval server config from experiment config.
+        experiment_config = OmegaConf.create(config_dict["experiment"])
+        materials_server_config = experiment_config.materials_retrieval_server
+
         return compatible_agents[agent_name](
             cfg=OmegaConf.create(agent_config),
             logger=logger,
+            materials_server_host=materials_server_config.host,
+            materials_server_port=materials_server_config.port,
             render_gpu_id=render_gpu_id,
         )
 

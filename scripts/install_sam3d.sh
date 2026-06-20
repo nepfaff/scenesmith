@@ -9,6 +9,16 @@ set -euo pipefail
 SAM3D_OBJECTS_COMMIT="${SAM3D_OBJECTS_COMMIT:-81a82373a3a7f4cbb00bd5b32aaf6b4d0f659ddd}"
 SAM3_COMMIT="${SAM3_COMMIT:-11dec2936de97f2857c1f76b66d982d5a001155d}"
 
+if [ -n "${VIRTUAL_ENV:-}" ] && [ -x "${VIRTUAL_ENV}/bin/python" ]; then
+    PYTHON_BIN="${VIRTUAL_ENV}/bin/python"
+elif [ -x ".venv/bin/python" ]; then
+    export VIRTUAL_ENV="$(pwd)/.venv"
+    export PATH="${VIRTUAL_ENV}/bin:${PATH}"
+    PYTHON_BIN="${VIRTUAL_ENV}/bin/python"
+else
+    PYTHON_BIN="$(command -v python3)"
+fi
+
 echo "========================================="
 echo "SAM3D Installation Script"
 echo "========================================="
@@ -17,10 +27,15 @@ echo ""
 # Check for Python development headers (required for nvdiffrast JIT compilation).
 echo "Step 0: Checking system dependencies..."
 
-PYTHON_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-PYTHON_HEADER="/usr/include/x86_64-linux-gnu/python${PYTHON_VERSION}/pyconfig.h"
+PYTHON_VERSION=$("${PYTHON_BIN}" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+PYTHON_HEADER=$("${PYTHON_BIN}" - <<'PY'
+import sysconfig
 
-if [ ! -f "$PYTHON_HEADER" ]; then
+print(sysconfig.get_config_h_filename() or "")
+PY
+)
+
+if [ -z "$PYTHON_HEADER" ] || [ ! -f "$PYTHON_HEADER" ]; then
     echo "⚠️  Python development headers not found at $PYTHON_HEADER"
     echo "   These are required for nvdiffrast JIT compilation (texture baking)."
     echo ""
@@ -36,7 +51,7 @@ if [ ! -f "$PYTHON_HEADER" ]; then
         echo "   Install manually: sudo apt-get install libpython${PYTHON_VERSION}-dev"
     fi
 else
-    echo "✓ Python development headers found"
+    echo "✓ Python development headers found at $PYTHON_HEADER"
 fi
 
 echo ""
@@ -186,10 +201,18 @@ echo ""
 echo "Step 3: Installing SAM3..."
 cd SAM3
 
-# Install SAM3 with notebooks extras (includes inference dependencies).
-# This includes: decord, pycocotools, opencv-python, einops, scikit-image, scikit-learn.
+# Install SAM3 without asking it to resolve dependencies, then install the
+# runtime pieces SceneSmith uses explicitly. This keeps the main uv project in
+# charge of core pins such as torch, torchvision, numpy, and Drake.
 echo "Installing SAM3 with inference dependencies..."
-uv pip install -e ".[notebooks]"
+uv pip install -e . --no-deps
+uv pip install \
+    "iopath>=0.1.10" \
+    "pycocotools>=2.0.7" \
+    "decord>=0.6.0" \
+    "scikit-learn>=1.4" \
+    "ftfy>=6.1.1" \
+    "timm>=1.0.17"
 cd ..
 echo "✓ SAM3 installed"
 
@@ -201,11 +224,31 @@ echo ""
 
 cd sam-3d-objects
 
-# First install non-CUDA dependencies from requirements.txt.
-# Filter out packages that conflict with our environment or aren't needed.
+# Install the non-CUDA runtime dependencies used by SceneSmith's SAM3D path.
+# The upstream requirements file contains many training, notebook, and cloud
+# packages with old native pins; installing it wholesale is fragile across
+# Python versions.
 echo "Installing sam-3d-objects core dependencies..."
-grep -v -E "^(torch|torchvision|torchaudio|cuda-python|nvidia-|MoGe|flash_attn|bpy|wandb|jupyter|tensorboard|Flask|webdataset|sagemaker)" requirements.txt > /tmp/filtered_requirements.txt
-uv pip install -r /tmp/filtered_requirements.txt
+uv pip install \
+    astor \
+    easydict \
+    einops-exts \
+    fvcore \
+    loguru \
+    optree \
+    roma \
+    rootutils \
+    OpenEXR \
+    pymeshfix \
+    igraph \
+    "lightning==2.3.3" \
+    plotly \
+    plyfile \
+    pyvista \
+    psutil \
+    "spconv-cu121==2.3.8" \
+    "open3d>=0.19.0" \
+    "numpy>=1.26,<2.0"
 
 # Now install CUDA-dependent packages with --no-build-isolation.
 echo ""
@@ -215,17 +258,17 @@ uv pip install --no-build-isolation \
 
 echo ""
 echo "Installing nvdiffrast (requires CUDA)..."
-uv pip install --no-build-isolation \
+uv pip install --reinstall --no-cache --no-build-isolation \
     "git+https://github.com/NVlabs/nvdiffrast.git"
+uv pip install "numpy>=1.26,<2.0"
 
 echo ""
 echo "Pre-compiling nvdiffrast CUDA extensions..."
 echo "(This triggers PyTorch JIT compilation - may take 1-2 minutes)"
 
 # Pre-compilation script - ensures nvdiffrast is ready to use.
-python3 << 'PYEOF'
+if "${PYTHON_BIN}" << 'PYEOF'
 import sys
-import os
 
 try:
     import torch
@@ -240,26 +283,14 @@ try:
 
     import nvdiffrast.torch as dr
     ctx = dr.RasterizeCudaContext()
-
-    # Verify compilation.
-    import torch.utils.cpp_extension as cpp_ext
-    build_dir = cpp_ext._get_build_directory("nvdiffrast_plugin", False)
-    so_path = os.path.join(build_dir, "nvdiffrast_plugin.so")
-
-    if os.path.exists(so_path):
-        size_mb = os.path.getsize(so_path) / (1024 * 1024)
-        print(f"SUCCESS: {so_path} ({size_mb:.1f} MB)")
-    else:
-        print("WARNING: .so file not found, compilation may have failed")
-        sys.exit(1)
+    print(f"SUCCESS: {type(ctx).__name__} initialized")
 
 except Exception as e:
     print(f"Pre-compilation failed: {e}")
-    print("NOTE: nvdiffrast will compile on first SAM3D use (~2-5 min delay)")
-    sys.exit(0)  # Non-fatal
+    print("NOTE: nvdiffrast may need to be rebuilt for this Torch/CUDA environment")
+    sys.exit(1)
 PYEOF
-
-if [ $? -eq 0 ]; then
+then
     echo "✓ nvdiffrast pre-compiled successfully"
 else
     echo "⚠️  nvdiffrast pre-compilation skipped (will compile on first use)"
@@ -278,7 +309,9 @@ uv pip install --no-build-isolation \
 # Install inference-specific requirements.
 echo ""
 echo "Installing inference dependencies..."
-uv pip install seaborn==0.13.2 gradio==5.49.0 imageio utils3d
+uv pip install seaborn==0.13.2 gradio==5.49.0 imageio
+uv pip install utils3d --no-deps
+uv pip install "numpy>=1.26,<2.0"
 
 # Install MoGe (depth model used by SAM 3D Objects).
 echo ""
@@ -293,6 +326,22 @@ echo "✓ All dependencies installed"
 echo ""
 echo "Step 5: Downloading model checkpoints..."
 echo ""
+
+if [ -f "checkpoints/sam3.pt" ] && [ -f "checkpoints/pipeline.yaml" ]; then
+    echo "✓ SAM3D checkpoints already exist; skipping HuggingFace download"
+    cd ..
+    echo ""
+    echo "========================================="
+    echo "SAM3D Installation Complete!"
+    echo "========================================="
+    echo ""
+    echo "Checkpoints located in: external/checkpoints/"
+    echo "  SAM3: external/checkpoints/sam3.pt"
+    echo "  SAM 3D Objects: external/checkpoints/*.{ckpt,pt,yaml}"
+    echo ""
+    exit 0
+fi
+
 echo "⚠️  Important: HuggingFace authentication required!"
 echo "    1. Request access: https://huggingface.co/facebook/sam3"
 echo "    2. Request access: https://huggingface.co/facebook/sam-3d-objects"

@@ -13,7 +13,26 @@ from scenesmith.agent_utils.drake_utils import (
     create_drake_plant_and_scene_graph_from_scene,
 )
 from scenesmith.agent_utils.house import RoomGeometry
+from scenesmith.agent_utils.rendering import _generate_angled_drawer_view
 from scenesmith.agent_utils.room import ObjectType, RoomScene, SceneObject, UniqueID
+
+
+class TestGenerateAngledDrawerView(unittest.TestCase):
+    """Test pure drawer view helper used outside the Blender Python process."""
+
+    def test_generates_normalized_direction_without_bpy(self):
+        view = _generate_angled_drawer_view(
+            surface={"surface_id": "drawer_surface"},
+            joint_name="drawer_joint",
+            drawer_direction=[0.0, 2.0, 0.0],
+        )
+
+        direction = np.array(view["direction"])
+
+        self.assertEqual(view["name"], "drawer_drawer_joint_drawer_surface")
+        self.assertAlmostEqual(np.linalg.norm(direction), 1.0)
+        self.assertGreater(direction[1], 0.0)
+        self.assertGreater(direction[2], 0.0)
 
 
 class TestCreateDrakePlantAndSceneGraphFromScene(unittest.TestCase):

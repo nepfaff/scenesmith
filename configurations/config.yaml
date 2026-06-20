@@ -9,6 +9,15 @@ openai:
   #   "priority" - Lower latency, premium pricing
   service_tier: "default"
 
+# Timeout applied to OpenAI API requests that run the scene-generation agents
+# and VLM helpers. These requests can be slow, but should not block a worker
+# forever if a connection stalls.
+api_timeout:
+  connect: 30.0
+  read: 600.0
+  write: 300.0
+  pool: 30.0
+
 defaults:
   - experiment: indoor_scene_generation # Experiment yaml file name in configurations/experiment folder
   - floor_plan_agent: stateful_floor_plan_agent # Floor plan agent config in configurations/floor_plan_agent folder

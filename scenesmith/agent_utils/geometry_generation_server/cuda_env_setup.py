@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import sysconfig
 
 from glob import glob
 from pathlib import Path
@@ -167,9 +168,9 @@ def ensure_cuda_env() -> bool:
     # Set CPATH for GCC to find headers during JIT compilation.
     # We need multiple paths:
     # 1. CUDA headers from the conda environment or system CUDA
-    # 2. Python multiarch headers (required for nvdiffrast JIT compilation)
-    #    The system /usr/include/python3.10/pyconfig.h includes
-    #    <x86_64-linux-gnu/python3.10/pyconfig.h> which needs the multiarch path.
+    # 2. Python multiarch headers (required for nvdiffrast JIT compilation).
+    #    Some system Python headers include a multiarch pyconfig.h path, so
+    #    resolve it dynamically instead of assuming a specific Python version.
     cpath_entries = []
 
     # Add CUDA include path.
@@ -182,25 +183,39 @@ def ensure_cuda_env() -> bool:
     else:
         console_logger.warning(f"CUDA include directory not found at {cuda_include}")
 
-    # Add Python multiarch include path for nvdiffrast JIT compilation.
-    # The system /usr/include/python3.10/pyconfig.h includes:
-    #   <x86_64-linux-gnu/python3.10/pyconfig.h>
-    # We need this header available, BUT we cannot add /usr/include/x86_64-linux-gnu
-    # directly to CPATH because it causes glibc header conflicts with conda's sysroot.
-    # Solution: Create a minimal directory structure with only the Python header.
-    python_multiarch_header = Path(
-        "/usr/include/x86_64-linux-gnu/python3.10/pyconfig.h"
-    )
-    if python_multiarch_header.exists():
-        # Create minimal include directory structure.
-        multiarch_shim = Path("/tmp/python_multiarch_headers")
-        target_dir = multiarch_shim / "x86_64-linux-gnu" / "python3.10"
-        target_dir.mkdir(parents=True, exist_ok=True)
-        target_link = target_dir / "pyconfig.h"
-        if not target_link.exists():
-            target_link.symlink_to(python_multiarch_header)
-        cpath_entries.append(str(multiarch_shim))
-        console_logger.info(f"Created Python multiarch header shim at {multiarch_shim}")
+    # Add Python headers for nvdiffrast JIT compilation. Use sysconfig so this
+    # works for uv-managed Python builds as well as system Python packages.
+    python_include = sysconfig.get_path("include")
+    if python_include and Path(python_include).exists():
+        cpath_entries.append(str(python_include))
+        console_logger.info(f"Added Python include directory: {python_include}")
+
+    python_config_header = sysconfig.get_config_h_filename()
+    if python_config_header:
+        header_parent = Path(python_config_header).parent
+        if header_parent.exists() and str(header_parent) not in cpath_entries:
+            cpath_entries.append(str(header_parent))
+            console_logger.info(
+                f"Added Python config header directory: {header_parent}"
+            )
+
+    multiarch = sysconfig.get_config_var("MULTIARCH")
+    python_version = sysconfig.get_python_version()
+    if multiarch:
+        python_multiarch_header = Path(
+            f"/usr/include/{multiarch}/python{python_version}/pyconfig.h"
+        )
+        if python_multiarch_header.exists():
+            multiarch_shim = Path("/tmp/python_multiarch_headers")
+            target_dir = multiarch_shim / multiarch / f"python{python_version}"
+            target_dir.mkdir(parents=True, exist_ok=True)
+            target_link = target_dir / "pyconfig.h"
+            if not target_link.exists():
+                target_link.symlink_to(python_multiarch_header)
+            cpath_entries.append(str(multiarch_shim))
+            console_logger.info(
+                f"Created Python multiarch header shim at {multiarch_shim}"
+            )
 
     if cpath_entries:
         os.environ["CPATH"] = ":".join(cpath_entries)

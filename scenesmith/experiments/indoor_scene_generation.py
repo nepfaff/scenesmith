@@ -593,6 +593,12 @@ def _generate_room(
                     projection_time_limit_s=furniture_cfg["time_limit_s"],
                     projection_xy_only=furniture_cfg["xy_only"],
                     projection_fix_rotation=furniture_cfg["fix_rotation"],
+                    large_scene_optimization_threshold=projection_cfg[
+                        "large_scene_optimization_threshold"
+                    ],
+                    collision_penetration_threshold_m=projection_cfg[
+                        "collision_penetration_threshold_m"
+                    ],
                     simulation_enabled=sim_cfg["enabled"],
                     simulation_time_s=sim_cfg["simulation_time_s"],
                     simulation_time_step_s=sim_cfg["time_step_s"],
@@ -841,6 +847,12 @@ def _generate_room(
                 projection_time_limit_s=final_cfg["time_limit_s"],
                 projection_xy_only=final_cfg["xy_only"],
                 projection_fix_rotation=final_cfg["fix_rotation"],
+                large_scene_optimization_threshold=projection_cfg[
+                    "large_scene_optimization_threshold"
+                ],
+                collision_penetration_threshold_m=projection_cfg[
+                    "collision_penetration_threshold_m"
+                ],
                 simulation_enabled=sim_cfg["enabled"],
                 simulation_time_s=sim_cfg["simulation_time_s"],
                 simulation_time_step_s=sim_cfg["time_step_s"],
@@ -1345,6 +1357,7 @@ class IndoorSceneGenerationExperiment(BaseExperiment):
         self.geometry_server = GeometryGenerationServer(
             host=server_config.host,
             port=server_config.port,
+            preload_pipeline=server_config.get("preload_pipeline", True),
             backend=backend,
             sam3d_config=sam3d_config,
             log_file=self.output_dir / "experiment.log",
@@ -1762,7 +1775,7 @@ class IndoorSceneGenerationExperiment(BaseExperiment):
                         )
                         return
 
-                    # Stages 2-4: Furniture, wall objects, and manipulands (per-room).
+                    # Stages 2-5: Furniture, wall, ceiling, and manipuland objects.
                     # Determine room-level start/stop stages.
                     room_start_stage = (
                         "furniture" if start_stage == "floor_plan" else start_stage

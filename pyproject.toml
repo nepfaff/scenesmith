@@ -3,15 +3,14 @@ name = "scenesmith"
 version = "0.1.0"
 description = "Agentic generation of simulation-ready indoor scenes"
 readme = "README.md"
-requires-python = ">=3.11, <3.12"
+requires-python = ">=3.12, <3.13"
 dependencies = [
     "autoflake>=2.3.1",
     "black>=25.1.0",
-    "bpy==4.5.4",
     "coacd>=1.0.7",
     "colorama>=0.4.6",
     "diffusers>=0.35.1",
-    "drake>=1.47.0",
+    "drake==1.52.1",
     "einops>=0.8.1",
     "flask>=3.1.2",
     "google-genai>=1.0.0",
@@ -78,11 +77,3 @@ known_first_party = ['scenesmith']
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-
-[[tool.uv.index]]
-name = "blender"
-url = "https://download.blender.org/pypi/"
-explicit = true 
-
-[tool.uv.sources]
-bpy = { index = "blender" }                                                                                                                                                                                               

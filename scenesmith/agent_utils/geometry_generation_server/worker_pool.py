@@ -138,12 +138,10 @@ class GPUWorkerPool:
             f"Detected {self._num_gpus} GPU(s) for worker pool: {self._gpu_ids}"
         )
 
-        # Use 'fork' context for workers. Fork works correctly because:
-        # 1. Parent process does NOT import torch/CUDA at module level
-        # 2. Each worker sets CUDA_VISIBLE_DEVICES BEFORE importing CUDA code
-        # 3. Fork is required because 'spawn' re-imports main.py which imports bpy,
-        #    and bpy cannot be imported in spawned subprocesses
-        self._mp_ctx = mp.get_context("fork")
+        # CUDA is not fork-safe once any parent process has initialized it. Use
+        # spawn so geometry workers always start from a clean interpreter before
+        # setting CUDA_VISIBLE_DEVICES and importing torch/CUDA code.
+        self._mp_ctx = mp.get_context("spawn")
 
         # Lock for serializing pipeline initialization to avoid I/O contention.
         # SAM3D checkpoints are ~15GB total. Loading them on 8 workers simultaneously
@@ -153,7 +151,7 @@ class GPUWorkerPool:
 
         # Worker tracking.
         self._workers: dict[int, WorkerInfo] = {}
-        self._available_workers: Queue = Queue()
+        self._available_workers: Queue = self._mp_ctx.Queue()
         self._result_queue: Queue = self._mp_ctx.Queue()
         self._pending_callbacks: dict[str, tuple[Callable, int]] = {}
         self._pending_callbacks_lock = threading.Lock()
@@ -249,9 +247,8 @@ class GPUWorkerPool:
     def start(self) -> None:
         """Start all GPU worker processes.
 
-        Uses 'fork' context to create worker processes. Workers fork BEFORE
-        any CUDA initialization in the parent (CLIP servers start after this).
-        Each worker then sets CUDA_VISIBLE_DEVICES and imports CUDA code.
+        Uses 'spawn' context to create clean worker processes. Each worker sets
+        CUDA_VISIBLE_DEVICES before importing CUDA-dependent code.
 
         Workers are staggered to avoid contention during pipeline loading.
         """
@@ -263,7 +260,7 @@ class GPUWorkerPool:
         )
         self._running = True
 
-        # Fork worker processes on all available GPUs.
+        # Spawn worker processes on all available GPUs.
         for i, gpu_id in enumerate(self._gpu_ids):
             self._start_single_worker(gpu_id)
 

@@ -1,6 +1,7 @@
 import atexit
 import copy
 import logging
+import math
 import os
 import sys
 import tempfile
@@ -25,7 +26,6 @@ from pydrake.all import (
 )
 
 from scenesmith.agent_utils.blender import BlenderServer
-from scenesmith.agent_utils.blender.surface_utils import generate_angled_drawer_view
 from scenesmith.agent_utils.drake_utils import (
     create_drake_plant_and_scene_graph_from_scene,
     create_plant_from_dmd,
@@ -222,6 +222,42 @@ def compute_drawer_direction(
     return translation.tolist()
 
 
+def _generate_angled_drawer_view(
+    surface: dict,
+    joint_name: str,
+    drawer_direction: list[float] | None = None,
+    view_index: int = 0,
+) -> dict:
+    """Generate a drawer-inspection view without importing Blender-only modules."""
+    surface_id = surface.get("surface_id", f"surface_{view_index}")
+
+    if drawer_direction is not None:
+        dx, dy, _ = drawer_direction
+        horiz_mag = math.sqrt(dx * dx + dy * dy)
+
+        if horiz_mag > 0.01:
+            horiz_scale = 0.7
+            direction = [
+                (dx / horiz_mag) * horiz_scale,
+                (dy / horiz_mag) * horiz_scale,
+                0.7,
+            ]
+            norm = math.sqrt(sum(component * component for component in direction))
+            direction = [component / norm for component in direction]
+        else:
+            direction = [0.0, 0.7071067811865476, 0.7071067811865476]
+    else:
+        direction = [0.0, 0.7071067811865476, 0.7071067811865476]
+
+    return {
+        "name": f"drawer_{joint_name}_{surface_id}",
+        "direction": direction,
+        "is_side": False,
+        "surface_data": surface,
+        "is_drawer_view": True,
+    }
+
+
 def build_support_surfaces_data(surfaces: list[SupportSurface]) -> list[dict]:
     """Build serializable surface data for Blender overlay config.
 
@@ -373,7 +409,7 @@ def render_per_drawer_views(
 
         # 7. Generate angled view configuration.
         if surfaces_data:
-            view = generate_angled_drawer_view(
+            view = _generate_angled_drawer_view(
                 surface=surfaces_data[0],
                 joint_name=joint_name,
                 drawer_direction=drawer_direction,

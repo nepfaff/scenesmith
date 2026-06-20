@@ -194,14 +194,8 @@ class BaseStatefulAgent(ABC):
         extra_args: dict = {}
 
         # Add timeout if configured (api_timeout is optional).
-        if hasattr(self.cfg, "api_timeout"):
-            timeout_cfg = self.cfg.api_timeout
-            timeout = Timeout(
-                connect=timeout_cfg.connect,
-                read=timeout_cfg.read,
-                write=timeout_cfg.write,
-                pool=timeout_cfg.pool,
-            )
+        timeout = self._get_api_timeout()
+        if timeout is not None:
             extra_args["timeout"] = timeout
 
         # Add service_tier if configured (non-null/non-empty).
@@ -231,6 +225,19 @@ class BaseStatefulAgent(ABC):
             kwargs["parallel_tool_calls"] = parallel_tool_calls
 
         return ModelSettings(**kwargs) if kwargs else None
+
+    def _get_api_timeout(self) -> Timeout | None:
+        """Return the configured OpenAI API timeout, if present."""
+        if not hasattr(self.cfg, "api_timeout"):
+            return None
+
+        timeout_cfg = self.cfg.api_timeout
+        return Timeout(
+            connect=timeout_cfg.connect,
+            read=timeout_cfg.read,
+            write=timeout_cfg.write,
+            pool=timeout_cfg.pool,
+        )
 
     def _create_designer_agent(
         self, tools: list[FunctionTool], prompt_enum: Any, **prompt_kwargs: Any

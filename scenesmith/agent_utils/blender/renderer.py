@@ -86,10 +86,6 @@ EEVEE_ASSET_VALIDATION_SAMPLES = 8
 # CYCLES samples for offline CLIP embedding renders (higher quality, slower).
 CYCLES_CLIP_SAMPLES = 20
 VLM_ANALYSIS_LIGHT_ENERGY = 2000
-# Lower light energy for articulated objects (more reflective materials).
-ARTICULATED_LIGHT_ENERGY = 500
-# Lower light energy for material/texture validation (avoid washing out colors).
-MATERIAL_VALIDATION_LIGHT_ENERGY = 300
 
 # Camera constants.
 DEFAULT_CAMERA_LENS_MM = 50
@@ -106,6 +102,27 @@ LOWER_SURFACE_CLIP_OFFSET_M = 0.05
 
 # Multi-view rendering constants.
 COORDINATE_FRAME_SCALE_FACTOR = 0.01
+
+
+def _set_eevee_render_engine(scene) -> str:
+    """Select the Eevee render engine name supported by the active Blender build."""
+    try:
+        available_engines = {
+            item.identifier
+            for item in scene.render.bl_rna.properties["engine"].enum_items
+        }
+    except (AttributeError, KeyError, TypeError):
+        available_engines = set()
+
+    if "BLENDER_EEVEE_NEXT" in available_engines:
+        engine = "BLENDER_EEVEE_NEXT"
+    elif "BLENDER_EEVEE" in available_engines:
+        engine = "BLENDER_EEVEE"
+    else:
+        engine = "CYCLES"
+
+    scene.render.engine = engine
+    return engine
 
 
 def _apply_eevee_speed_settings(scene, keep_shadows: bool = True) -> None:
@@ -367,7 +384,7 @@ class BlenderRenderer(
 
             # Set up rendering with EEVEE for speed (6x faster than CYCLES).
             scene = bpy.context.scene
-            scene.render.engine = "BLENDER_EEVEE_NEXT"
+            _set_eevee_render_engine(scene)
             scene.eevee.taa_render_samples = taa_samples
             _apply_eevee_speed_settings(scene)
             scene.render.resolution_x = width
@@ -714,7 +731,7 @@ class BlenderRenderer(
 
             # Set up rendering with EEVEE for speed (6x faster than CYCLES).
             scene = bpy.context.scene
-            scene.render.engine = "BLENDER_EEVEE_NEXT"
+            _set_eevee_render_engine(scene)
             scene.eevee.taa_render_samples = taa_samples
             _apply_eevee_speed_settings(scene)
             scene.render.resolution_x = width
@@ -750,7 +767,7 @@ class BlenderRenderer(
 
             # Apply rotation to counteract glTF import rotation.
             bpy.ops.transform.rotate(
-                value=math.pi / 2,
+                value=-math.pi / 2,
                 orient_axis="X",
                 orient_type="GLOBAL",
                 center_override=(0, 0, 0),
@@ -875,7 +892,7 @@ class BlenderRenderer(
 
             # Set up rendering with EEVEE for speed (6x faster than CYCLES).
             scene = bpy.context.scene
-            scene.render.engine = "BLENDER_EEVEE_NEXT"
+            _set_eevee_render_engine(scene)
             scene.eevee.taa_render_samples = taa_samples
             _apply_eevee_speed_settings(scene)
             scene.render.resolution_x = width
@@ -1050,7 +1067,7 @@ class BlenderRenderer(
 
             # Set up rendering with EEVEE for speed (6x faster than CYCLES).
             scene = bpy.context.scene
-            scene.render.engine = "BLENDER_EEVEE_NEXT"
+            _set_eevee_render_engine(scene)
             scene.eevee.taa_render_samples = taa_samples
             _apply_eevee_speed_settings(scene)
             scene.render.resolution_x = width
@@ -1449,12 +1466,12 @@ class BlenderRenderer(
             ) = _compute_bounds_from_corners(corners)
 
             # Compute furniture rotation angle for camera alignment.
-            # Corners are in Drake Z-up coordinates but need to be in Blender Y-up.
-            # Apply the same 90° X rotation that's applied to GLTF imports:
-            # Drake (x, y, z) → Blender (x, -z, y)
+            # Corners are in Drake Z-up coordinates but the overlay camera
+            # alignment uses the legacy glTF overlay frame:
+            # Drake (x, y, z) → overlay (x, -z, y)
 
             def drake_to_blender(point):
-                """Transform point from Drake Z-up to Blender Y-up coordinates."""
+                """Transform point from Drake Z-up to overlay camera space."""
                 return np.array([point[0], -point[2], point[1]])
 
             # Transform corners to Blender space.
@@ -2454,7 +2471,7 @@ class BlenderRenderer(
 
         # Additional metric-specific settings.
         scene = bpy.context.scene
-        scene.render.engine = "BLENDER_EEVEE_NEXT"
+        _set_eevee_render_engine(scene)
         scene.render.film_transparent = True  # Enable alpha channel.
         scene.render.image_settings.color_mode = "RGBA"
         scene.render.image_settings.color_depth = "8"

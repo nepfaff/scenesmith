@@ -5,6 +5,7 @@ import unittest
 import xml.etree.ElementTree as ET
 
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
@@ -1351,6 +1352,43 @@ class TestLargeSceneOptimization(PhysicalFeasibilityTestCase):
 
             # Should succeed with no changes (early return, no collisions).
             self.assertTrue(success)
+
+            box1_after = result_scene.get_object(UniqueID("box_1"))
+            box2_after = result_scene.get_object(UniqueID("box_2"))
+
+            self.assertTrue(
+                np.allclose(box1_after.transform.translation(), initial_pos1, atol=1e-6)
+            )
+            self.assertTrue(
+                np.allclose(box2_after.transform.translation(), initial_pos2, atol=1e-6)
+            )
+
+    def test_small_scene_no_collisions_skips_projection(self) -> None:
+        """Small scenes with no collisions return before building an IK plant."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            scene = self._create_non_overlapping_boxes_scene(Path(tmp_dir))
+
+            box1 = scene.get_object(UniqueID("box_1"))
+            box2 = scene.get_object(UniqueID("box_2"))
+            initial_pos1 = box1.transform.translation().copy()
+            initial_pos2 = box2.transform.translation().copy()
+
+            with patch(
+                "scenesmith.agent_utils.physical_feasibility._create_drake_plant_for_ik"
+            ) as create_plant:
+                result_scene, success = apply_non_penetration_projection(
+                    scene=scene,
+                    influence_distance=0.03,
+                    solver_name="snopt",
+                    iteration_limit=5000,
+                    weld_furniture=False,
+                    xy_only=False,
+                    fix_rotation=True,
+                    large_scene_optimization_threshold=100,
+                )
+
+            self.assertTrue(success)
+            create_plant.assert_not_called()
 
             box1_after = result_scene.get_object(UniqueID("box_1"))
             box2_after = result_scene.get_object(UniqueID("box_2"))

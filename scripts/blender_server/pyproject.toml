@@ -1,0 +1,32 @@
+[project]
+name = "scenesmith-blender-server"
+version = "0.1.0"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "bpy==5.1.2",
+    "colorama>=0.4.6",
+    "drake==1.52.1",
+    "flask>=3.1.2",
+    "lxml>=6.0.0",
+    "matplotlib>=3.10.5",
+    "numpy>=2.2,<3.0",
+    "omegaconf>=2.3.0",
+    "pillow>=11.3.0",
+    "pygltflib>=1.16.5",
+    "requests>=2.32.4",
+    "rtree>=1.4.1",
+    "scipy>=1.15.3",
+    "shapely>=2.1.2",
+    "trimesh>=4.7.4",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+bpy = { index = "blender" }
+
+[[tool.uv.index]]
+name = "blender"
+url = "https://download.blender.org/pypi/"
+explicit = true

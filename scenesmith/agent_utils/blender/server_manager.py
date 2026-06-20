@@ -1,3 +1,5 @@
+import contextlib
+import importlib.util
 import logging
 import os
 import shutil
@@ -14,6 +16,11 @@ from scenesmith.agent_utils.mesh_utils import convert_gltf_to_glb
 from scenesmith.utils.network_utils import find_available_port, is_port_available
 
 console_logger = logging.getLogger(__name__)
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows fallback.
+    fcntl = None
 
 
 class BlenderServer:
@@ -114,6 +121,17 @@ class BlenderServer:
         if self._running:
             raise RuntimeError("Server is already running")
 
+        try:
+            with self._port_allocation_lock():
+                self._start_process_with_allocated_port()
+        except Exception as e:
+            # Clean up on failure.
+            self._cleanup_startup_failure()
+            console_logger.error(f"Failed to start server: {e}")
+            raise
+
+    def _start_process_with_allocated_port(self) -> None:
+        """Start the subprocess while holding any needed port-allocation lock."""
         # Determine the port to use.
         target_port = self._determine_port()
         self._actual_port = target_port
@@ -131,8 +149,20 @@ class BlenderServer:
                     f"Standalone server script not found: {standalone_script}"
                 )
 
+            project_root = Path(__file__).parent.parent.parent.parent
+            server_python = os.environ.get("SCENESMITH_BLENDER_PYTHON") or None
+            if server_python is None:
+                server_python = self._find_blender_python(project_root)
+            if server_python is None:
+                raise RuntimeError(
+                    "Blender Python module 'bpy' is not installed in the current "
+                    "environment and no .venv-blender interpreter was found. Run "
+                    "scripts/setup_blender_python.sh or set SCENESMITH_BLENDER_PYTHON "
+                    "to a Python executable that can import bpy."
+                )
+
             cmd = [
-                sys.executable,
+                server_python,
                 str(standalone_script),
                 "--host",
                 self._host,
@@ -158,7 +188,6 @@ class BlenderServer:
 
             # Set PYTHONPATH so subprocess can find scenesmith module.
             env = os.environ.copy()
-            project_root = Path(__file__).parent.parent.parent.parent
             env["PYTHONPATH"] = str(project_root) + ":" + env.get("PYTHONPATH", "")
 
             # Apply GPU isolation via bubblewrap if gpu_id is set.
@@ -177,25 +206,96 @@ class BlenderServer:
                     )
 
             # Start the server process.
-            self._server_process = subprocess.Popen(cmd, text=True, env=env)
+            self._server_process = subprocess.Popen(
+                cmd,
+                text=True,
+                env=env,
+                cwd=project_root,
+            )
 
             # Wait for Blender to complete initialization.
             time.sleep(self._server_startup_delay)
+            self._raise_if_server_exited_during_startup(target_port=target_port)
+            if self._port_range is not None:
+                self._wait_until_port_bound(target_port=target_port)
 
             self._running = True
             console_logger.info(
                 f"Server process started with PID {self._server_process.pid}"
             )
 
-        except Exception as e:
-            # Clean up on failure.
-            if self._temp_dir:
-                self._temp_dir.cleanup()
-                self._temp_dir = None
-            self._running = False
-            self._actual_port = None
-            console_logger.error(f"Failed to start server: {e}")
+        except Exception:
+            self._cleanup_startup_failure()
             raise
+
+    @contextlib.contextmanager
+    def _port_allocation_lock(self):
+        """Serialize port selection for range-based Blender servers.
+
+        Parallel scene workers can otherwise both observe the same free port before
+        either Flask process has bound it. Holding this lock until the child binds
+        prevents one worker from accidentally using another worker's server.
+        """
+        if self._port_range is None or fcntl is None:
+            yield
+            return
+
+        start_port, end_port = self._port_range
+        safe_host = self._host.replace("/", "_").replace(":", "_")
+        lock_path = (
+            Path(tempfile.gettempdir())
+            / f"scenesmith_blender_{safe_host}_{start_port}_{end_port}.lock"
+        )
+
+        with lock_path.open("w") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+    def _raise_if_server_exited_during_startup(self, target_port: int) -> None:
+        """Raise if the subprocess exited before startup completed."""
+        if self._server_process is None:
+            raise RuntimeError("Blender server process was not created")
+
+        exit_code = self._server_process.poll()
+        if exit_code is not None:
+            raise RuntimeError(
+                "Blender server exited during startup "
+                f"(exitcode={exit_code}, port={target_port})"
+            )
+
+    def _wait_until_port_bound(self, target_port: int, timeout: float = 30.0) -> None:
+        """Wait until the child process binds its selected port."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            self._raise_if_server_exited_during_startup(target_port=target_port)
+            if not is_port_available(host=self._host, port=target_port):
+                return
+            time.sleep(0.1)
+
+        raise RuntimeError(
+            f"Blender server did not bind {self._host}:{target_port} "
+            f"within {timeout:.1f}s"
+        )
+
+    def _cleanup_startup_failure(self) -> None:
+        """Clean up resources left by a failed start attempt."""
+        if self._server_process is not None:
+            if self._server_process.poll() is None:
+                self._server_process.terminate()
+                try:
+                    self._server_process.wait(timeout=5.0)
+                except subprocess.TimeoutExpired:
+                    self._server_process.kill()
+                    self._server_process.wait()
+            self._server_process = None
+        if self._temp_dir:
+            self._temp_dir.cleanup()
+            self._temp_dir = None
+        self._running = False
+        self._actual_port = None
 
     def _determine_port(self) -> int:
         """Determine the port to use for the server."""
@@ -224,6 +324,44 @@ class BlenderServer:
     def _is_bwrap_available(self) -> bool:
         """Check if bubblewrap is installed."""
         return shutil.which("bwrap") is not None
+
+    @staticmethod
+    def _find_blender_python(project_root: Path) -> str | None:
+        """Find a Python executable that can import bpy."""
+        candidates: list[Path] = []
+        try:
+            current_env_has_bpy = importlib.util.find_spec("bpy") is not None
+        except (ImportError, ValueError):
+            current_env_has_bpy = False
+
+        if current_env_has_bpy:
+            candidates.append(Path(sys.executable))
+
+        candidates.extend(
+            [
+                project_root / ".venv-blender" / "bin" / "python",
+                project_root / ".venv-blender" / "Scripts" / "python.exe",
+            ]
+        )
+
+        for candidate in candidates:
+            if candidate.exists() and BlenderServer._python_can_import_bpy(candidate):
+                return str(candidate)
+        return None
+
+    @staticmethod
+    def _python_can_import_bpy(python_executable: Path) -> bool:
+        """Check whether an interpreter can import Blender's Python module."""
+        try:
+            result = subprocess.run(
+                [str(python_executable), "-c", "import bpy"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=30,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return False
+        return result.returncode == 0
 
     def _build_bwrap_command(self, cmd: list[str], gpu_id: int) -> list[str]:
         """Wrap command in bubblewrap for GPU isolation.

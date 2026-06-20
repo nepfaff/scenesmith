@@ -1,5 +1,4 @@
 import logging
-import os
 import shutil
 import tempfile
 import time
@@ -7,7 +6,6 @@ import unittest
 
 from pathlib import Path
 
-import numpy as np
 import trimesh
 
 from PIL import Image, ImageDraw
@@ -27,6 +25,7 @@ except (ImportError, RuntimeError) as e:
     logging.getLogger(__name__).warning(f"CUDA environment setup skipped: {e}")
 # isort: on
 
+from scenesmith.agent_utils.blender.server_manager import BlenderServer
 from scenesmith.agent_utils.geometry_generation_server.geometry_generation import (
     generate_geometry_from_image,
 )
@@ -217,38 +216,23 @@ class TestSAM3DPipelineIntegration(unittest.TestCase):
         SAM3DPipelineManager.reset_pipelines()
         self.assertFalse(SAM3DPipelineManager.are_pipelines_loaded())
 
-    def _render_mesh_to_image(self, mesh: trimesh.Trimesh, output_path: Path) -> None:
-        """Render mesh to PNG using pyrender's OffscreenRenderer."""
-        # Set EGL backend for headless rendering before importing pyrender.
-        os.environ["PYOPENGL_PLATFORM"] = "egl"
-        import pyrender
-
-        # Convert trimesh to pyrender mesh.
-        pr_mesh = pyrender.Mesh.from_trimesh(mesh)
-
-        # Create scene with ambient light.
-        scene = pyrender.Scene(ambient_light=[0.3, 0.3, 0.3])
-        scene.add(pr_mesh)
-
-        # Position camera to view the mesh based on bounds.
-        camera = pyrender.PerspectiveCamera(yfov=np.pi / 3)
-        center = mesh.centroid
-        extent = np.max(mesh.bounds[1] - mesh.bounds[0])
-        camera_pose = np.eye(4)
-        camera_pose[:3, 3] = center + [0, 0, extent * 2]
-        scene.add(camera, pose=camera_pose)
-
-        # Add directional light.
-        light = pyrender.DirectionalLight(color=np.ones(3), intensity=3.0)
-        scene.add(light, pose=camera_pose)
-
-        # Render offscreen.
-        renderer = pyrender.OffscreenRenderer(800, 600)
-        color, _ = renderer.render(scene)
-        renderer.delete()
-
-        # Save rendered image.
-        Image.fromarray(color).save(output_path)
+    def _render_mesh_to_image(self, mesh_path: Path, output_path: Path) -> None:
+        """Render mesh to PNG using the Blender server render path."""
+        render_dir = output_path.parent / "office_shelf_render_views"
+        server = BlenderServer(port_range=(8000, 8350))
+        try:
+            server.start()
+            image_paths = server.render_multiview_for_analysis(
+                mesh_path=mesh_path,
+                output_dir=render_dir,
+                elevation_degrees=20.0,
+                num_side_views=4,
+                include_vertical_views=True,
+            )
+            self.assertGreater(len(image_paths), 0, "Render should produce images")
+            shutil.copy2(image_paths[0], output_path)
+        finally:
+            server.stop()
 
     def test_sam3d_real_image_with_rendering(self):
         """Test SAM3D pipeline with real office shelf image and render output.
@@ -289,7 +273,7 @@ class TestSAM3DPipelineIntegration(unittest.TestCase):
 
         # Render mesh to image for visual inspection.
         render_path = output_dir / "office_shelf_render.png"
-        self._render_mesh_to_image(mesh=mesh, output_path=render_path)
+        self._render_mesh_to_image(mesh_path=output_path, output_path=render_path)
         self.assertTrue(render_path.exists(), "Render should exist")
 
         # Log output location for manual inspection.

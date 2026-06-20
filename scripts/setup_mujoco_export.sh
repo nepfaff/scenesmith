@@ -16,7 +16,7 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 VENV_DIR="$PROJECT_DIR/.mujoco_venv"
 
 echo "Creating virtual environment at $VENV_DIR..."
-uv venv --python 3.11 "$VENV_DIR"
+uv venv --python 3.12 "$VENV_DIR"
 
 echo "Installing dependencies..."
 source "$VENV_DIR/bin/activate"

@@ -7,6 +7,7 @@ import unittest
 import xml.etree.ElementTree as ET
 
 from pathlib import Path
+from unittest.mock import Mock
 
 import yaml
 
@@ -14,7 +15,10 @@ from omegaconf import OmegaConf
 
 # isort: off
 # Need to import bpy first to avoid potential symbol loading issues.
-import bpy  # noqa: F401
+try:
+    import bpy  # noqa: F401
+except ImportError:
+    bpy = None
 
 # isort: on
 
@@ -37,7 +41,9 @@ console_logger = logging.getLogger(__name__)
     not has_openai_key()
     or not has_gpu_available()
     or not has_hunyuan3d_installed()
-    or is_github_actions(),
+    or is_github_actions()
+    or bpy is None
+    or isinstance(bpy, Mock),
     "Requires OpenAI API key, GPU, Hunyuan3D-2, and non-CI environment",
 )
 class TestFurnitureAgentIntegration(unittest.TestCase):

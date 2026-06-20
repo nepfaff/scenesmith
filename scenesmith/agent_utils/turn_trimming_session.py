@@ -19,7 +19,7 @@ from typing import Any
 from agents import SQLiteSession
 from agents.items import TResponseInputItem
 from omegaconf import DictConfig
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, Timeout
 from openai.types.shared import Reasoning
 
 from scenesmith.prompts import prompt_registry
@@ -382,7 +382,18 @@ class TurnTrimmingSession:
     def _get_openai_client(self) -> AsyncOpenAI:
         """Get or create the OpenAI client for summarization."""
         if self._openai_client is None:
-            self._openai_client = AsyncOpenAI()
+            timeout = None
+            if hasattr(self._cfg, "api_timeout"):
+                timeout_cfg = self._cfg.api_timeout
+                timeout = Timeout(
+                    connect=timeout_cfg.connect,
+                    read=timeout_cfg.read,
+                    write=timeout_cfg.write,
+                    pool=timeout_cfg.pool,
+                )
+            self._openai_client = (
+                AsyncOpenAI(timeout=timeout) if timeout is not None else AsyncOpenAI()
+            )
         return self._openai_client
 
     async def _summarize_turn(self, turn: Turn, turn_number: int) -> str:
